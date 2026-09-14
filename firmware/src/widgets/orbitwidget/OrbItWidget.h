@@ -1,0 +1,143 @@
+#ifndef ORBIT_WIDGET_H
+#define ORBIT_WIDGET_H
+
+#include "GlobalTime.h"
+#include "Utils.h"
+#include "Widget.h"
+#include "controls/TickerControl.h"
+#include "controls/TimeControl.h"
+#include "controls/WeatherControl.h"
+#include "stockwidget/StockDataModel.h"
+#include "weatherwidget/WeatherDataModel.h"
+#include "webdatawidget/WebDataModel.h"
+#include <ArduinoJson.h>
+#include <HTTPClient.h>
+#include <Preferences.h>
+#include <WebServer.h>
+
+// OrbIt treats each of the 5 physical screens as an independently assignable "slot" instead of
+// one widget owning all 5 screens the way ClockWidget/WeatherWidget/StockWidget do. Slot
+// assignment is controlled at runtime via a small REST API ("orbit-api", see
+// firmware/src/widgets/orbitwidget/docs/orbit-api.md for the full spec this implements).
+//
+// Deliberately self-contained: OrbIt does not include or depend on ClockWidget/WeatherWidget/
+// StockWidget. It reuses their small per-screen renderers (TimeControl/WeatherControl/
+// TickerControl, under this widget's own controls/ directory) and their plain data model classes
+// (StockDataModel/WeatherDataModel), but owns its own data fetching, so nothing here changes if
+// those widgets change.
+enum class OrbItSource {
+    BLANK,
+    TIME,
+    WEATHER,
+    TICKER,
+    // Reuses WebDataModel/WebDataElementModel (from webdatawidget/, read-only reuse - not modified,
+    // not depended on beyond these two small data classes) so OrbIt doesn't need its own drawing
+    // primitive dialect: "params" for this control is exactly one WebDataWidget "displays" entry
+    // (label/data/color/labelColor/background/fullDraw), see firmware/src/widgets/orbitwidget/docs/orbit-api.md.
+    CUSTOM,
+};
+
+enum class WeatherElement {
+    ICON,
+    TEMPERATURE,
+    CONDITION,
+};
+
+struct OrbItSlot {
+    OrbItSource source = OrbItSource::BLANK;
+    bool showDate = false; // TIME control only
+    bool showDay = false; // TIME control only
+    bool format24Hour = false; // TIME control only - independent of GlobalTime's own device-wide setting
+    WeatherElement weatherElement = WeatherElement::ICON;
+    String tickerSymbol;
+
+    // Change-tracking, mirroring the isChanged()/lastValue pattern already used elsewhere in this
+    // codebase (ClockWidget's m_lastDisplayNDigit, StockDataModel::isChanged()): only repaint a
+    // screen when its underlying value actually changed, computed in update() and compared in draw().
+    String pendingValue;
+    String lastRenderedValue;
+    bool everDrawn = false;
+
+    unsigned long updatedAt = 0; // millis() at last successful orbit-api write, 0 if never configured via API
+};
+
+class OrbItWidget : public Widget {
+public:
+    OrbItWidget(ScreenManager &manager);
+    void setup() override;
+    void update(bool force = false) override;
+    void draw(bool force = false) override;
+    void buttonPressed(uint8_t buttonId, ButtonState state) override;
+    String getName() override;
+
+    // Starts the orbit-api server on first call and services pending requests. Must only be called
+    // once WiFi is connected (main.cpp already gates this the same way it gates widget updates).
+    // Intentionally called every loop iteration regardless of which widget is currently displayed,
+    // BEFORE WidgetSet::updateCurrent()/drawCurrent() - so a config change applied this tick is
+    // picked up by the very same tick's draw pass if OrbIt happens to be current, with no need for
+    // this widget to know whether it's "the current one" (WidgetSet already only calls this
+    // widget's own draw() while it is).
+    void serviceApi();
+
+private:
+    bool anySlotUses(OrbItSource source);
+
+    void drawSlot(int displayIndex, OrbItSlot &slot, bool force);
+    void drawTimeSlot(int displayIndex, OrbItSlot &slot, bool force);
+    void drawWeatherSlot(int displayIndex, OrbItSlot &slot, bool force);
+    void drawTickerSlot(int displayIndex, OrbItSlot &slot, bool force);
+    void drawCustomSlot(int displayIndex, OrbItSlot &slot, bool force);
+
+    void updateWeather(bool force);
+    void updateTicker(bool force);
+    bool fetchWeatherData(WeatherDataModel &model);
+    void fetchTickerData(StockDataModel &stock);
+
+    // orbit-api
+    void setupApiRoutes();
+    void handleGetScreens();
+    void handleGetScreen(int index);
+    void handlePostScreens();
+    void handlePostScreen(int index);
+    bool parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &errorMessage);
+    void slotToJson(int index, const OrbItSlot &slot, JsonObject out);
+    void sendJson(int code, const JsonDocument &doc);
+    void sendError(int code, const String &message);
+    // immediateFetch=false is used only when restoring from NVS at construction time, before WiFi
+    // is up - skips the live ticker fetch and leaves updatedAt at 0 (meaningless post-reboot millis()
+    // values aren't worth persisting/restoring).
+    void applySlotConfig(int index, const OrbItSlot &newConfig, JsonObject rawConfig, bool immediateFetch = true);
+
+    // Persistence (NVS via Preferences) - Step 5 of the OrbIt plan. The whole 5-slot layout is
+    // stored as one JSON blob under a single key, matching the GET /screens response shape, so
+    // save/restore reuses slotToJson()/parseSlotConfig() rather than a separate schema.
+    void loadPersistedLayout();
+    void persistLayout();
+
+    TimeControl m_timeControl;
+    WeatherControl m_weatherControl;
+    TickerControl m_tickerControl;
+
+    OrbItSlot m_slots[NUM_SCREENS];
+
+    WeatherDataModel m_weatherModel;
+    ScreenMode m_weatherScreenMode = Dark;
+    unsigned long m_weatherDelay = 600000; // matches WeatherWidget's refresh rate
+    unsigned long m_weatherDelayPrev = 0;
+
+    // One StockDataModel per screen that wants a ticker - simplest v1; no de-duplication if two
+    // slots happen to request the same symbol.
+    StockDataModel m_tickerModels[NUM_SCREENS];
+    unsigned long m_tickerDelay = 900000; // matches StockWidget's refresh rate
+    unsigned long m_tickerDelayPrev = 0;
+
+    // One WebDataModel per screen assigned "custom" - same reuse-not-share approach as the ticker
+    // models above.
+    WebDataModel m_customModels[NUM_SCREENS];
+
+    WebServer m_server{80};
+    bool m_serverStarted = false;
+
+    Preferences m_preferences;
+};
+#endif // ORBIT_WIDGET_H

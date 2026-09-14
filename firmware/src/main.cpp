@@ -20,6 +20,9 @@
 #ifdef MQTT_WIDGET_HOST
     #include "mqttwidget/MQTTWidget.h"
 #endif
+#ifdef ORBIT_WIDGET_ENABLED
+    #include "orbitwidget/OrbItWidget.h"
+#endif
 
 TFT_eSPI tft = TFT_eSPI();
 
@@ -46,6 +49,9 @@ bool isConnected{true};
 
 ScreenManager *sm;
 WidgetSet *widgetSet;
+#ifdef ORBIT_WIDGET_ENABLED
+OrbItWidget *orbItWidget{nullptr};
+#endif
 
 // This function should probably be moved somewhere else
 bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
@@ -138,6 +144,10 @@ void setup() {
 #ifdef MQTT_WIDGET_HOST
     widgetSet->add(new MQTTWidget(*sm, MQTT_WIDGET_HOST, MQTT_WIDGET_PORT));
 #endif
+#ifdef ORBIT_WIDGET_ENABLED
+    orbItWidget = new OrbItWidget(*sm);
+    widgetSet->add(orbItWidget);
+#endif
 
     m_widgetCycleDelayPrev = millis();
 }
@@ -196,6 +206,12 @@ void loop() {
         globalTime->updateTime();
 
         checkButtons();
+
+#ifdef ORBIT_WIDGET_ENABLED
+        // Serviced before updateCurrent()/drawCurrent() so a config change applied this tick is
+        // picked up by this same tick's draw pass if OrbIt happens to be the current widget.
+        orbItWidget->serviceApi();
+#endif
 
         widgetSet->updateCurrent();
         widgetSet->updateBrightnessByTime(globalTime->getHour24());
