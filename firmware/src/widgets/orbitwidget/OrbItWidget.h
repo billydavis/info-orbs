@@ -4,6 +4,7 @@
 #include "GlobalTime.h"
 #include "Utils.h"
 #include "Widget.h"
+#include "controls/AnalogClockControl.h"
 #include "controls/TickerControl.h"
 #include "controls/TimeControl.h"
 #include "controls/WeatherControl.h"
@@ -28,6 +29,8 @@
 enum class OrbItSource {
     BLANK,
     TIME,
+    // A genuinely new rendering, not adapted from an existing widget - see AnalogClockControl.
+    ANALOG_CLOCK,
     WEATHER,
     TICKER,
     // Reuses WebDataModel/WebDataElementModel (from webdatawidget/, read-only reuse - not modified,
@@ -50,6 +53,7 @@ struct OrbItSlot {
     bool format24Hour = false; // TIME control only - independent of GlobalTime's own device-wide setting
     WeatherElement weatherElement = WeatherElement::ICON;
     String tickerSymbol;
+    AnalogClockColors analogColors; // ANALOG_CLOCK control only
 
     // Change-tracking, mirroring the isChanged()/lastValue pattern already used elsewhere in this
     // codebase (ClockWidget's m_lastDisplayNDigit, StockDataModel::isChanged()): only repaint a
@@ -84,6 +88,7 @@ private:
 
     void drawSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawTimeSlot(int displayIndex, OrbItSlot &slot, bool force);
+    void drawAnalogClockSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawWeatherSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawTickerSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawCustomSlot(int displayIndex, OrbItSlot &slot, bool force);
@@ -115,6 +120,7 @@ private:
     void persistLayout();
 
     TimeControl m_timeControl;
+    AnalogClockControl m_analogClockControl;
     WeatherControl m_weatherControl;
     TickerControl m_tickerControl;
 
@@ -134,6 +140,10 @@ private:
     // One WebDataModel per screen assigned "custom" - same reuse-not-share approach as the ticker
     // models above.
     WebDataModel m_customModels[NUM_SCREENS];
+
+    // Per-screen hand-position memory for ANALOG_CLOCK slots, so AnalogClockControl can erase just
+    // the old hands each second instead of a full-screen redraw (see AnalogClockControl.h).
+    AnalogClockHands m_analogClockHands[NUM_SCREENS];
 
     WebServer m_server{80};
     bool m_serverStarted = false;
