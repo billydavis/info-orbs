@@ -6,6 +6,13 @@
 // These symbols are generated from the files specified in platformio.ini under 'board_build.embed_files'
 // See https://docs.platformio.org/en/latest/platforms/espressif32.html#embedding-binary-data for more info
 
+// If you only ever use WEATHER_SCREEN_MODE Dark, set this to false (and comment out the 7 light-mode
+// icon lines in platformio.ini) to save ~31KB of flash.
+#ifndef WEATHER_INCLUDE_LIGHT_ICONS
+    #define WEATHER_INCLUDE_LIGHT_ICONS true
+#endif
+
+#if WEATHER_INCLUDE_LIGHT_ICONS
 extern const byte moonCloudW_start[] asm("_binary_images_WeatherWidget_light_moonCloudW_jpg_start");
 extern const byte moonCloudW_end[] asm("_binary_images_WeatherWidget_light_moonCloudW_jpg_end");
 extern const byte sunCloudsW_start[] asm("_binary_images_WeatherWidget_light_sunCloudsW_jpg_start");
@@ -20,6 +27,7 @@ extern const byte rainW_start[] asm("_binary_images_WeatherWidget_light_rainW_jp
 extern const byte rainW_end[] asm("_binary_images_WeatherWidget_light_rainW_jpg_end");
 extern const byte cloudsW_start[] asm("_binary_images_WeatherWidget_light_cloudsW_jpg_start");
 extern const byte cloudsW_end[] asm("_binary_images_WeatherWidget_light_cloudsW_jpg_end");
+#endif // WEATHER_INCLUDE_LIGHT_ICONS
 extern const byte moonCloudB_start[] asm("_binary_images_WeatherWidget_dark_moonCloudB_jpg_start");
 extern const byte moonCloudB_end[] asm("_binary_images_WeatherWidget_dark_moonCloudB_jpg_end");
 extern const byte sunCloudsB_start[] asm("_binary_images_WeatherWidget_dark_sunCloudsB_jpg_start");

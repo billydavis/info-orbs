@@ -37,7 +37,16 @@ extern const byte finalFrontier_end[] asm("_binary_fonts_FinalFrontier_ttf_end")
 // extern const byte dseg14_end[] asm("_binary_fonts_DSEG14ClassicBold_ttf_end");
 extern const byte dseg7_start[] asm("_binary_fonts_DSEG7ModernBold_ttf_start");
 extern const byte dseg7_end[] asm("_binary_fonts_DSEG7ModernBold_ttf_end");
+
+// If you never set CLOCK_FONT to DSEG14, set this to false (and comment out DSEG14ModernBold.ttf in
+// platformio.ini) to save ~70KB of flash.
+#ifndef CLOCK_INCLUDE_DSEG14
+    #define CLOCK_INCLUDE_DSEG14 true
+#endif
+
+#if CLOCK_INCLUDE_DSEG14
 extern const byte dseg14_start[] asm("_binary_fonts_DSEG14ModernBold_ttf_start");
 extern const byte dseg14_end[] asm("_binary_fonts_DSEG14ModernBold_ttf_end");
+#endif
 
 #endif

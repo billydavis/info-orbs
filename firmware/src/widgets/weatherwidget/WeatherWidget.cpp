@@ -162,30 +162,42 @@ void WeatherWidget::drawWeatherIcon(int displayIndex, const String &condition, i
     const byte *iconStart = NULL;
     const byte *iconEnd = NULL;
 
+#if WEATHER_INCLUDE_LIGHT_ICONS
+    #define WEATHER_ICON(name) (m_screenMode == Light ? name##W_start : name##B_start)
+    #define WEATHER_ICON_END(name) (m_screenMode == Light ? name##W_end : name##B_end)
+#else
+    // Light-mode icons were excluded from the build (WEATHER_INCLUDE_LIGHT_ICONS false) - always use Dark.
+    #define WEATHER_ICON(name) (name##B_start)
+    #define WEATHER_ICON_END(name) (name##B_end)
+#endif
+
     if (condition == "partly-cloudy-night") {
-        iconStart = m_screenMode == Light ? moonCloudW_start : moonCloudB_start;
-        iconEnd = m_screenMode == Light ? moonCloudW_end : moonCloudB_end;
+        iconStart = WEATHER_ICON(moonCloud);
+        iconEnd = WEATHER_ICON_END(moonCloud);
     } else if (condition == "partly-cloudy-day") {
-        iconStart = m_screenMode == Light ? sunCloudsW_start : sunCloudsB_start;
-        iconEnd = m_screenMode == Light ? sunCloudsW_end : sunCloudsB_end;
+        iconStart = WEATHER_ICON(sunClouds);
+        iconEnd = WEATHER_ICON_END(sunClouds);
     } else if (condition == "clear-day") {
-        iconStart = m_screenMode == Light ? sunW_start : sunB_start;
-        iconEnd = m_screenMode == Light ? sunW_end : sunB_end;
+        iconStart = WEATHER_ICON(sun);
+        iconEnd = WEATHER_ICON_END(sun);
     } else if (condition == "clear-night") {
-        iconStart = m_screenMode == Light ? moonW_start : moonB_start;
-        iconEnd = m_screenMode == Light ? moonW_end : moonB_end;
+        iconStart = WEATHER_ICON(moon);
+        iconEnd = WEATHER_ICON_END(moon);
     } else if (condition == "snow") {
-        iconStart = m_screenMode == Light ? snowW_start : snowB_start;
-        iconEnd = m_screenMode == Light ? snowW_end : snowB_end;
+        iconStart = WEATHER_ICON(snow);
+        iconEnd = WEATHER_ICON_END(snow);
     } else if (condition == "rain") {
-        iconStart = m_screenMode == Light ? rainW_start : rainB_start;
-        iconEnd = m_screenMode == Light ? rainW_end : rainB_end;
+        iconStart = WEATHER_ICON(rain);
+        iconEnd = WEATHER_ICON_END(rain);
     } else if (condition == "fog" || condition == "wind" || condition == "cloudy") {
-        iconStart = m_screenMode == Light ? cloudsW_start : cloudsB_start;
-        iconEnd = m_screenMode == Light ? cloudsW_end : cloudsB_end;
+        iconStart = WEATHER_ICON(clouds);
+        iconEnd = WEATHER_ICON_END(clouds);
     } else {
         Serial.println("unknown weather icon:" + condition);
     }
+
+    #undef WEATHER_ICON
+    #undef WEATHER_ICON_END
 
     const int size = iconEnd - iconStart;
     if (iconStart != NULL && size > 0) {
