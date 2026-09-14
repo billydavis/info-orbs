@@ -25,10 +25,15 @@
 #define USE_CLOCK_CUSTOM false          // Set to true to enable custom clock (see images/ClockWidget/custom/README.md)
 #define DEFAULT_CLOCK ClockType::NORMAL // Set the default clock face: ClockType::NORMAL, ClockType::NIXIE or ClockType::CUSTOM
 //#define CLOCK_FONT DSEG7              // Define clock font (defaults to DSEG7, you can also try DSEG14 or FINAL_FRONTIER)
+// If you don't use Nixie, DSEG14, or the light-mode weather icons, set these to false AND comment out
+// the matching lines in platformio.ini's board_build.embed_files to reclaim flash (~149KB/~70KB/~31KB).
+//#define USE_CLOCK_NIXIE false
+//#define CLOCK_INCLUDE_DSEG14 false
 
 // WEATHER CONFIGURATION
 #define WEATHER_LOCATION "Victoria, BC" // City/state for the weather, look it up on https://www.visualcrossing.com/weather-data
 #define WEATHER_SCREEN_MODE Dark        // Can be either Light or Dark
+//#define WEATHER_INCLUDE_LIGHT_ICONS false // See note above (~31KB)
 #define WEATHER_UNITS_METRIC            // Comment this line out (or delete it) if you want imperial units for the weather
 
 // STOCK TICKER CONFIGURATION
