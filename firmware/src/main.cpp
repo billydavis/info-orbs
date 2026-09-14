@@ -20,6 +20,16 @@
 #ifdef MQTT_WIDGET_HOST
     #include "mqttwidget/MQTTWidget.h"
 #endif
+#ifdef MAKAPIX_PLAYER_KEY
+    #include "makapix/MakapixWidget.h"
+#endif
+
+// The default Arduino-ESP32 loop task stack is 8KB, which is not always enough for libwebp's lossless
+// (VP8L) decoder - used by MakapixWidget to decode WebP images - and can silently overflow/crash mid-
+// decode. This overrides that framework-provided weak default with a larger stack.
+size_t getArduinoLoopTaskStackSize(void) {
+    return 16384;
+}
 
 TFT_eSPI tft = TFT_eSPI();
 
@@ -137,6 +147,9 @@ void setup() {
 #endif
 #ifdef MQTT_WIDGET_HOST
     widgetSet->add(new MQTTWidget(*sm, MQTT_WIDGET_HOST, MQTT_WIDGET_PORT));
+#endif
+#ifdef MAKAPIX_PLAYER_KEY
+    widgetSet->add(new MakapixWidget(*sm, MAKAPIX_PLAYER_KEY, MAKAPIX_API_TOKEN));
 #endif
 
     m_widgetCycleDelayPrev = millis();

@@ -67,6 +67,10 @@ public:
     void drawCircle(int32_t x, int32_t y, int32_t r, uint32_t color);
     void fillCircle(int32_t x, int32_t y, int32_t r, uint32_t color);
 
+    // Push a raw RGB565 pixel buffer (w*h uint16_t, row-major) to the selected screen, dimmed to the
+    // current brightness. Used for images decoded outside of TJpg_Decoder (e.g. WebP).
+    void pushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data);
+
     // Legacy text function (not using TTF)
     int16_t getLegacyFontHeight();
     void setLegacyTextColor(uint16_t color);

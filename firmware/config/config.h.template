@@ -53,6 +53,16 @@
 //#define MQTT_WIDGET_USER "mqttuser" // Leave empty if authentication is not required
 //#define MQTT_WIDGET_PASS "mqttuser" // Leave empty if authentication is not required
 
+// MAKAPIX CONFIGURATION
+// Values come from one-time player provisioning (see firmware/src/widgets/makapix/test_https_player_api.py
+// for the reference provisioning flow). Provision a player, link it in the Makapix web app, then paste the
+// resulting player_key/api_token below. Do NOT commit real values here - config.h must stay gitignored.
+//#define MAKAPIX_PLAYER_KEY "your-player-key"
+//#define MAKAPIX_API_TOKEN "your-api-token"
+//#define MAKAPIX_BASE_URL "https://makapix.club/api" // only override for a custom instance
+//#define MAKAPIX_CHANNEL "all"                        // all|promoted|user|by_user|hashtag|reactions
+//#define MAKAPIX_CYCLE_MINUTES 5                      // minutes between fetching a fresh batch of images
+
 // WIFI CONFIGURATION
 // Normally WiFi should be configured using a smartphone or computer to connect to the Info-Orbs
 // configuration portal. But as a fall-back method, WiFi can be setup by uncommenting these 2 lines and

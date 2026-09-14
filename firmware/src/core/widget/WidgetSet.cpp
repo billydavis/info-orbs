@@ -5,6 +5,7 @@ WidgetSet::WidgetSet(ScreenManager *sm) : m_screenManager(sm) {
 void WidgetSet::add(Widget *widget) {
     if (m_widgetCount == MAX_WIDGETS) {
         Serial.println("MAX WIDGETS UNABLE TO ADD");
+        delete widget;
         return;
     }
     m_widgets[m_widgetCount] = widget;
@@ -75,7 +76,7 @@ void WidgetSet::showLoading() {
 }
 
 void WidgetSet::updateAll() {
-    for (int8_t i; i < m_widgetCount; i++) {
+    for (int8_t i = 0; i < m_widgetCount; i++) {
         Serial.printf("updating widget %s\n", m_widgets[i]->getName().c_str());
         showCenteredLine(4, m_widgets[i]->getName());
         m_widgets[i]->update();

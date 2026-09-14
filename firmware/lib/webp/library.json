@@ -1,0 +1,13 @@
+{
+  "name": "webp-decode",
+  "version": "1.0.0",
+  "description": "Vendored decode+demux-only subset of libwebp (no encoder/mux), used to decode WebP images (including extracting a single frame from an animated WebP) for the Makapix widget.",
+  "license": "BSD-3-Clause",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "build": {
+    "srcDir": "src",
+    "includeDir": ".",
+    "libArchive": false
+  }
+}

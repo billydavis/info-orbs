@@ -267,6 +267,13 @@ unsigned int ScreenManager::getScaledFontSize(unsigned int fontSize) {
 }
 
 // get the dimmed color (using current brightness)
+void ScreenManager::pushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data) {
+    for (int32_t i = 0; i < w * h; i++) {
+        data[i] = dim(data[i]);
+    }
+    m_tft.pushImage(x, y, w, h, data);
+}
+
 uint16_t ScreenManager::dim(uint16_t color) {
     return Utils::rgb565dim(color, m_brightness);
 }
