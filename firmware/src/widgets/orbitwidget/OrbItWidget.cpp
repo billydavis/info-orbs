@@ -9,6 +9,8 @@ String sourceToString(OrbItSource source) {
     switch (source) {
     case OrbItSource::TIME:
         return "time";
+    case OrbItSource::ANALOG_CLOCK:
+        return "analogClock";
     case OrbItSource::WEATHER:
         return "weather";
     case OrbItSource::TICKER:
@@ -34,7 +36,7 @@ String weatherElementToString(WeatherElement element) {
 }
 } // namespace
 
-OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_weatherControl(manager), m_tickerControl(manager) {
+OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_weatherControl(manager), m_tickerControl(manager) {
     // Compile-time starting layout - orbit-api can reassign any of this at runtime. Mixes pieces of
     // Clock/Weather/Stock across screens simultaneously, which is the whole point of this widget.
     m_slots[0].source = OrbItSource::TIME;
@@ -89,9 +91,13 @@ void OrbItWidget::update(bool force) {
     // WeatherWidget's own clock screen uses (WeatherWidget::getClockStamp()) - showDate/showDay
     // don't need their own change tracking since they're static per-slot config, not per-tick data.
     String clockStamp = String(time->getHour() * 60 + time->getMinute());
+    // The analog clock's second hand needs per-second granularity, not per-minute.
+    String secondStamp = String(time->getHour() * 3600 + time->getMinute() * 60 + time->getSecond());
     for (int i = 0; i < NUM_SCREENS; i++) {
         if (m_slots[i].source == OrbItSource::TIME) {
             m_slots[i].pendingValue = clockStamp;
+        } else if (m_slots[i].source == OrbItSource::ANALOG_CLOCK) {
+            m_slots[i].pendingValue = secondStamp;
         }
     }
 
@@ -216,6 +222,9 @@ void OrbItWidget::drawSlot(int displayIndex, OrbItSlot &slot, bool force) {
     case OrbItSource::TIME:
         drawTimeSlot(displayIndex, slot, force);
         break;
+    case OrbItSource::ANALOG_CLOCK:
+        drawAnalogClockSlot(displayIndex, slot, force);
+        break;
     case OrbItSource::WEATHER:
         drawWeatherSlot(displayIndex, slot, force);
         break;
@@ -241,6 +250,16 @@ void OrbItWidget::drawTimeSlot(int displayIndex, OrbItSlot &slot, bool force) {
     }
     m_manager.setFont(DEFAULT_FONT);
     m_timeControl.drawFullTime(displayIndex, GlobalTime::getInstance(), slot.showDate, slot.showDay, slot.format24Hour, TFT_WHITE, TFT_BLACK);
+    slot.lastRenderedValue = slot.pendingValue;
+    slot.everDrawn = true;
+}
+
+void OrbItWidget::drawAnalogClockSlot(int displayIndex, OrbItSlot &slot, bool force) {
+    if (slot.pendingValue == slot.lastRenderedValue && !force) {
+        return;
+    }
+    bool fullRedraw = force || !slot.everDrawn;
+    m_analogClockControl.draw(displayIndex, GlobalTime::getInstance(), slot.analogColors, m_analogClockHands[displayIndex], fullRedraw);
     slot.lastRenderedValue = slot.pendingValue;
     slot.everDrawn = true;
 }
@@ -346,6 +365,16 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
         params["showDay"] = slot.showDay;
         params["format24Hour"] = slot.format24Hour;
         break;
+    case OrbItSource::ANALOG_CLOCK:
+        // Reported as raw numeric RGB565 values, not color names - Utils::stringToColor() has no
+        // reverse (color->name) lookup, same lossy-read-back tradeoff already accepted for a rich
+        // "custom" slot's element array.
+        params["background"] = slot.analogColors.background;
+        params["tickColor"] = slot.analogColors.tick;
+        params["hourColor"] = slot.analogColors.hourHand;
+        params["minuteColor"] = slot.analogColors.minuteHand;
+        params["secondColor"] = slot.analogColors.secondHand;
+        break;
     case OrbItSource::WEATHER:
         params["element"] = weatherElementToString(slot.weatherElement);
         break;
@@ -392,6 +421,31 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
         outSlot.showDay = params["showDay"].is<bool>() ? params["showDay"].as<bool>() : false;
         outSlot.format24Hour = params["format24Hour"].is<bool>() ? params["format24Hour"].as<bool>() : false;
         outSlot.source = OrbItSource::TIME;
+        return true;
+    }
+
+    if (control == "analogClock") {
+        // All optional - each falls back to AnalogClockColors' own default (see
+        // AnalogClockControl.h) if omitted. Color names go through the same Utils::stringToColor()
+        // parser the rest of the codebase already uses for color strings (WebDataModel etc.).
+        AnalogClockColors colors; // defaults
+        if (params["background"].is<const char *>()) {
+            colors.background = Utils::stringToColor(params["background"].as<String>());
+        }
+        if (params["tickColor"].is<const char *>()) {
+            colors.tick = Utils::stringToColor(params["tickColor"].as<String>());
+        }
+        if (params["hourColor"].is<const char *>()) {
+            colors.hourHand = Utils::stringToColor(params["hourColor"].as<String>());
+        }
+        if (params["minuteColor"].is<const char *>()) {
+            colors.minuteHand = Utils::stringToColor(params["minuteColor"].as<String>());
+        }
+        if (params["secondColor"].is<const char *>()) {
+            colors.secondHand = Utils::stringToColor(params["secondColor"].as<String>());
+        }
+        outSlot.analogColors = colors;
+        outSlot.source = OrbItSource::ANALOG_CLOCK;
         return true;
     }
 
@@ -452,6 +506,7 @@ void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     slot.format24Hour = newConfig.format24Hour;
     slot.weatherElement = newConfig.weatherElement;
     slot.tickerSymbol = newConfig.tickerSymbol;
+    slot.analogColors = newConfig.analogColors;
     // A restored-at-boot slot hasn't been "written this session" in any meaningful sense - millis()
     // resets every reboot, so a persisted value would be misleading, not just stale.
     slot.updatedAt = immediateFetch ? millis() : 0;
