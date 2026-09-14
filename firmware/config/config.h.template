@@ -53,6 +53,13 @@
 //#define MQTT_WIDGET_USER "mqttuser" // Leave empty if authentication is not required
 //#define MQTT_WIDGET_PASS "mqttuser" // Leave empty if authentication is not required
 
+// ORBIT CONFIGURATION (experimental)
+// Treats each screen as an independently assignable slot (time/weather/ticker) instead of one
+// widget owning all 5 screens. Slot assignment is compile-time only for now (see
+// firmware/src/widgets/orbitwidget/OrbItWidget.cpp) - a REST-configurable version is planned,
+// see firmware/src/widgets/orbitwidget/docs/orbit-api.md.
+#define ORBIT_WIDGET_ENABLED
+
 // WIFI CONFIGURATION
 // Normally WiFi should be configured using a smartphone or computer to connect to the Info-Orbs
 // configuration portal. But as a fall-back method, WiFi can be setup by uncommenting these 2 lines and
