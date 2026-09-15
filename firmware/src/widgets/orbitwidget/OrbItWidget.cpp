@@ -11,6 +11,8 @@ String sourceToString(OrbItSource source) {
         return "time";
     case OrbItSource::ANALOG_CLOCK:
         return "analogClock";
+    case OrbItSource::GAUGE:
+        return "gauge";
     case OrbItSource::WEATHER:
         return "weather";
     case OrbItSource::TICKER:
@@ -34,9 +36,21 @@ String weatherElementToString(WeatherElement element) {
     }
     return "";
 }
+
+String gaugeStyleToString(GaugeStyle style) {
+    switch (style) {
+    case GaugeStyle::RING:
+        return "ring";
+    case GaugeStyle::SPEEDOMETER:
+        return "speedometer";
+    case GaugeStyle::INSTRUMENT:
+        return "instrument";
+    }
+    return "";
+}
 } // namespace
 
-OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_weatherControl(manager), m_tickerControl(manager) {
+OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_weatherControl(manager), m_tickerControl(manager) {
     // Compile-time starting layout - orbit-api can reassign any of this at runtime. Mixes pieces of
     // Clock/Weather/Stock across screens simultaneously, which is the whole point of this widget.
     m_slots[0].source = OrbItSource::TIME;
@@ -98,6 +112,12 @@ void OrbItWidget::update(bool force) {
             m_slots[i].pendingValue = clockStamp;
         } else if (m_slots[i].source == OrbItSource::ANALOG_CLOCK) {
             m_slots[i].pendingValue = secondStamp;
+        } else if (m_slots[i].source == OrbItSource::GAUGE) {
+            // Gauge config only ever changes via an orbit-api write (applySlotConfig already
+            // resets lastRenderedValue to force a redraw then) - this just needs to be *some*
+            // stable stamp of the full config so an unrelated redraw pass doesn't skip it forever.
+            const GaugeConfig &g = m_slots[i].gaugeConfig;
+            m_slots[i].pendingValue = String(g.value) + "|" + g.label + "|" + String(g.color) + "|" + String(g.trackColor) + "|" + String((int) g.style);
         }
     }
 
@@ -225,6 +245,9 @@ void OrbItWidget::drawSlot(int displayIndex, OrbItSlot &slot, bool force) {
     case OrbItSource::ANALOG_CLOCK:
         drawAnalogClockSlot(displayIndex, slot, force);
         break;
+    case OrbItSource::GAUGE:
+        drawGaugeSlot(displayIndex, slot, force);
+        break;
     case OrbItSource::WEATHER:
         drawWeatherSlot(displayIndex, slot, force);
         break;
@@ -260,6 +283,20 @@ void OrbItWidget::drawAnalogClockSlot(int displayIndex, OrbItSlot &slot, bool fo
     }
     bool fullRedraw = force || !slot.everDrawn;
     m_analogClockControl.draw(displayIndex, GlobalTime::getInstance(), slot.analogColors, m_analogClockHands[displayIndex], fullRedraw);
+    slot.lastRenderedValue = slot.pendingValue;
+    slot.everDrawn = true;
+}
+
+void OrbItWidget::drawGaugeSlot(int displayIndex, OrbItSlot &slot, bool force) {
+    if (slot.pendingValue == slot.lastRenderedValue && !force) {
+        return;
+    }
+    m_manager.setFont(DEFAULT_FONT);
+    // `force` only (not slot.everDrawn) - GaugeControl decides full-vs-incremental redraw itself
+    // from its own GaugeState (style/color changed?), not from this widget's generic per-slot
+    // bookkeeping, since most gauge updates are pure value changes that shouldn't force a full
+    // repaint the way switching sources into this slot does.
+    m_gaugeControl.draw(displayIndex, slot.gaugeConfig, TFT_BLACK, m_gaugeStates[displayIndex], force);
     slot.lastRenderedValue = slot.pendingValue;
     slot.everDrawn = true;
 }
@@ -375,6 +412,16 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
         params["minuteColor"] = slot.analogColors.minuteHand;
         params["secondColor"] = slot.analogColors.secondHand;
         break;
+    case OrbItSource::GAUGE:
+        params["label"] = slot.gaugeConfig.label;
+        params["value"] = slot.gaugeConfig.value;
+        params["min"] = slot.gaugeConfig.min;
+        params["max"] = slot.gaugeConfig.max;
+        // Same raw-numeric-RGB565 read-back tradeoff as analogClock above.
+        params["color"] = slot.gaugeConfig.color;
+        params["trackColor"] = slot.gaugeConfig.trackColor;
+        params["style"] = gaugeStyleToString(slot.gaugeConfig.style);
+        break;
     case OrbItSource::WEATHER:
         params["element"] = weatherElementToString(slot.weatherElement);
         break;
@@ -449,6 +496,46 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
         return true;
     }
 
+    if (control == "gauge") {
+        // All optional - each falls back to GaugeConfig's own default (see GaugeControl.h) if
+        // omitted, matching the mockup's anticipated shape (references/orbit-api.md).
+        GaugeConfig gauge;
+        if (params["label"].is<const char *>()) {
+            gauge.label = params["label"].as<String>();
+        }
+        if (params["value"].is<float>()) {
+            gauge.value = params["value"].as<float>();
+        }
+        if (params["min"].is<float>()) {
+            gauge.min = params["min"].as<float>();
+        }
+        if (params["max"].is<float>()) {
+            gauge.max = params["max"].as<float>();
+        }
+        if (params["color"].is<const char *>()) {
+            gauge.color = Utils::stringToColor(params["color"].as<String>());
+        }
+        if (params["trackColor"].is<const char *>()) {
+            gauge.trackColor = Utils::stringToColor(params["trackColor"].as<String>());
+        }
+        if (params["style"].is<const char *>()) {
+            String style = params["style"].as<String>();
+            if (style == "ring") {
+                gauge.style = GaugeStyle::RING;
+            } else if (style == "speedometer") {
+                gauge.style = GaugeStyle::SPEEDOMETER;
+            } else if (style == "instrument") {
+                gauge.style = GaugeStyle::INSTRUMENT;
+            } else {
+                errorMessage = "unknown gauge style '" + style + "'";
+                return false;
+            }
+        }
+        outSlot.gaugeConfig = gauge;
+        outSlot.source = OrbItSource::GAUGE;
+        return true;
+    }
+
     if (control == "weather") {
         if (!params["element"].is<const char *>()) {
             errorMessage = "control 'weather' requires params.element";
@@ -500,6 +587,7 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
 // straight to WebDataModel::parseData() rather than going through typed OrbItSlot fields.
 void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObject rawConfig, bool immediateFetch) {
     OrbItSlot &slot = m_slots[index];
+    bool wasGauge = (slot.source == OrbItSource::GAUGE);
     slot.source = newConfig.source;
     slot.showDate = newConfig.showDate;
     slot.showDay = newConfig.showDay;
@@ -507,6 +595,7 @@ void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     slot.weatherElement = newConfig.weatherElement;
     slot.tickerSymbol = newConfig.tickerSymbol;
     slot.analogColors = newConfig.analogColors;
+    slot.gaugeConfig = newConfig.gaugeConfig;
     // A restored-at-boot slot hasn't been "written this session" in any meaningful sense - millis()
     // resets every reboot, so a persisted value would be misleading, not just stale.
     slot.updatedAt = immediateFetch ? millis() : 0;
@@ -516,6 +605,14 @@ void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     slot.pendingValue = "";
     slot.lastRenderedValue = "";
     slot.everDrawn = false;
+
+    // Only reset GaugeState when this slot is newly becoming a gauge (from some other source, or
+    // for the first time) - repeated gauge-to-gauge reconfiguration (the common case: a client
+    // just POSTing an updated value) should NOT reset it, or every update would force a full
+    // repaint and bring back the exact flicker this state tracking exists to avoid.
+    if (slot.source == OrbItSource::GAUGE && !wasGauge) {
+        m_gaugeStates[index] = GaugeState();
+    }
 
     if (slot.source == OrbItSource::TICKER) {
         m_tickerModels[index] = StockDataModel();
