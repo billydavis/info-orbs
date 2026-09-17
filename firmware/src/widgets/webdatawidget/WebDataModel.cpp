@@ -82,7 +82,10 @@ void WebDataModel::setDataColor(String color) {
 }
 
 int32_t WebDataModel::getBackgroundColor() {
-    return m_background;
+    // -1 means no data has been received yet (parseData() never ran) - fall back to black
+    // rather than let it flow into fillScreen()/dim() as a uint16_t, where -1 truncates to
+    // 0xFFFF (white), painting the screen white instead of leaving it blank.
+    return m_background == -1 ? TFT_BLACK : m_background;
 }
 
 void WebDataModel::setBackgroundColor(int32_t background) {
