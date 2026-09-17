@@ -5,6 +5,7 @@
 #include "Utils.h"
 #include "Widget.h"
 #include "controls/AnalogClockControl.h"
+#include "controls/AsteroidsControl.h"
 #include "controls/GaugeControl.h"
 #include "controls/SysMonitorControl.h"
 #include "controls/TickerControl.h"
@@ -37,6 +38,8 @@ enum class OrbItSource {
     GAUGE,
     // Yet another genuinely new rendering - see SysMonitorControl.
     SYS_MONITOR,
+    // Purely decorative screensaver - see AsteroidsControl. No config; OrbIt's default for screen 2.
+    ASTEROIDS,
     WEATHER,
     TICKER,
     // Reuses WebDataModel/WebDataElementModel (from webdatawidget/, read-only reuse - not modified,
@@ -99,6 +102,7 @@ private:
     void drawAnalogClockSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawGaugeSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawSysMonitorSlot(int displayIndex, OrbItSlot &slot, bool force);
+    void drawAsteroidsSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawWeatherSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawTickerSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawCustomSlot(int displayIndex, OrbItSlot &slot, bool force);
@@ -133,6 +137,7 @@ private:
     AnalogClockControl m_analogClockControl;
     GaugeControl m_gaugeControl;
     SysMonitorControl m_sysMonitorControl;
+    AsteroidsControl m_asteroidsControl;
     WeatherControl m_weatherControl;
     TickerControl m_tickerControl;
 
@@ -164,6 +169,10 @@ private:
     // Per-screen "what did we actually last draw" memory for SYS_MONITOR slots, mirroring
     // m_gaugeStates above - same partial-redraw purpose, just per-quadrant instead of per-arc.
     SysMonitorState m_sysMonitorStates[NUM_SCREENS];
+
+    // Per-screen starfield/planet/rock animation state for ASTEROIDS slots - same "caller owns the
+    // per-screen memory" pattern as m_gaugeStates/m_sysMonitorStates above.
+    AsteroidsState m_asteroidsStates[NUM_SCREENS];
 
     WebServer m_server{80};
     bool m_serverStarted = false;

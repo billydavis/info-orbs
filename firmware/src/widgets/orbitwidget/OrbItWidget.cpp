@@ -15,6 +15,8 @@ String sourceToString(OrbItSource source) {
         return "gauge";
     case OrbItSource::SYS_MONITOR:
         return "sysMonitor";
+    case OrbItSource::ASTEROIDS:
+        return "asteroids";
     case OrbItSource::WEATHER:
         return "weather";
     case OrbItSource::TICKER:
@@ -52,7 +54,7 @@ String gaugeStyleToString(GaugeStyle style) {
 }
 } // namespace
 
-OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_sysMonitorControl(manager), m_weatherControl(manager), m_tickerControl(manager) {
+OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_sysMonitorControl(manager), m_asteroidsControl(manager), m_weatherControl(manager), m_tickerControl(manager) {
     // Compile-time starting layout - orbit-api can reassign any of this at runtime. Mixes pieces of
     // Clock/Weather/Stock across screens simultaneously, which is the whole point of this widget.
     m_slots[0].source = OrbItSource::TIME;
@@ -62,17 +64,13 @@ OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeContro
     m_slots[1].source = OrbItSource::WEATHER;
     m_slots[1].weatherElement = WeatherElement::TEMPERATURE;
 
-    m_slots[2].source = OrbItSource::CUSTOM;
-    // Go through parseData() (not WebDataModel's raw setData()) so background/color get properly
-    // defaulted to TFT_BLACK/TFT_WHITE - calling setData() alone leaves them at WebDataModel's own
-    // unset default (-1, which renders as white - the exact WebDataWidget footgun documented in
-    // firmware/src/widgets/orbitwidget/docs/orbit-api.md).
-    JsonDocument defaultLabelDoc;
-    defaultLabelDoc["data"] = "OrbIt Widget";
-    m_customModels[2].parseData(defaultLabelDoc.as<JsonObject>(), TFT_WHITE, TFT_BLACK);
+    // Default screen 2 to the decorative Asteroids-style screensaver (starfield + a bouncing
+    // planet labeled "Orb-It") instead of a plain text label - orbit-api can still reassign it to
+    // anything else, including "custom", at runtime.
+    m_slots[2].source = OrbItSource::ASTEROIDS;
 
-    m_slots[3].source = OrbItSource::WEATHER;
-    m_slots[3].weatherElement = WeatherElement::ICON;
+    // Default screen 3 to a classic analog clock face.
+    m_slots[3].source = OrbItSource::ANALOG_CLOCK;
 
     m_slots[4].source = OrbItSource::TICKER;
     m_slots[4].tickerSymbol = "BTC/USD";
@@ -125,6 +123,10 @@ void OrbItWidget::update(bool force) {
             // change via an orbit-api write, which already forces a redraw itself.
             const SysMonitorConfig &s = m_slots[i].sysMonitorConfig;
             m_slots[i].pendingValue = String(s.cpu) + "|" + String(s.cpuTemp) + "|" + String(s.gpu) + "|" + String(s.gpuTemp) + "|" + String(s.ram) + "|" + String(s.ramTotal) + "|" + String(s.ssdTemp) + "|" + s.center;
+        } else if (m_slots[i].source == OrbItSource::ASTEROIDS) {
+            // Throttles the animation to ~20fps regardless of how fast loop() itself spins - a new
+            // stamp every 50ms is what actually drives drawAsteroidsSlot()'s redraw below.
+            m_slots[i].pendingValue = String(millis() / 50);
         }
     }
 
@@ -258,6 +260,9 @@ void OrbItWidget::drawSlot(int displayIndex, OrbItSlot &slot, bool force) {
     case OrbItSource::SYS_MONITOR:
         drawSysMonitorSlot(displayIndex, slot, force);
         break;
+    case OrbItSource::ASTEROIDS:
+        drawAsteroidsSlot(displayIndex, slot, force);
+        break;
     case OrbItSource::WEATHER:
         drawWeatherSlot(displayIndex, slot, force);
         break;
@@ -319,6 +324,17 @@ void OrbItWidget::drawSysMonitorSlot(int displayIndex, OrbItSlot &slot, bool for
     // `force` only (not slot.everDrawn) - same reasoning as drawGaugeSlot(): SysMonitorControl
     // decides full-vs-per-quadrant redraw itself from its own SysMonitorState.
     m_sysMonitorControl.draw(displayIndex, slot.sysMonitorConfig, m_sysMonitorStates[displayIndex], force);
+    slot.lastRenderedValue = slot.pendingValue;
+    slot.everDrawn = true;
+}
+
+void OrbItWidget::drawAsteroidsSlot(int displayIndex, OrbItSlot &slot, bool force) {
+    if (slot.pendingValue == slot.lastRenderedValue && !force) {
+        return;
+    }
+    m_manager.setFont(DEFAULT_FONT);
+    bool fullRedraw = force || !slot.everDrawn;
+    m_asteroidsControl.draw(displayIndex, m_asteroidsStates[displayIndex], fullRedraw);
     slot.lastRenderedValue = slot.pendingValue;
     slot.everDrawn = true;
 }
@@ -454,6 +470,8 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
         params["ssdTemp"] = slot.sysMonitorConfig.ssdTemp;
         params["center"] = slot.sysMonitorConfig.center;
         break;
+    case OrbItSource::ASTEROIDS:
+        break;
     case OrbItSource::WEATHER:
         params["element"] = weatherElementToString(slot.weatherElement);
         break;
@@ -491,6 +509,11 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
 
     if (control == "blank") {
         outSlot.source = OrbItSource::BLANK;
+        return true;
+    }
+
+    if (control == "asteroids") {
+        outSlot.source = OrbItSource::ASTEROIDS;
         return true;
     }
 
