@@ -63,6 +63,7 @@ Each screen holds one **slot config**: a `control` name plus a `params` object w
 | `weather` | `WeatherControl` (`firmware/src/widgets/orbitwidget/controls/`) | `params.element` picks which piece (e.g. `icon`, `temperature`, `condition`) |
 | `ticker`  | `TickerControl` (`firmware/src/widgets/orbitwidget/controls/`) | `params.symbol` — any symbol `StockWidget`/twelvedata already accepts, including crypto/forex (e.g. `BTC/USD`) per the existing widget's convention |
 | `custom`  | inline drawing, reusing `WebDataModel`/`WebDataElementModel` classes directly | `params` is exactly one `WebDataWidget` "displays" entry (`label`/`data`/`color`/`labelColor`/`background`/`fullDraw`) — either a plain string in `data` for word-wrapped centered text, or an array of drawing primitives (`type: text\|line\|rectangle\|triangle\|circle\|arc\|character`). No new drawing DSL invented. Note: reading a rich (element-array) custom slot back via `GET` is lossy — it reports `elementCount` rather than the original primitives, since `WebDataModel` doesn't expose a way to reconstruct them. |
+| `asteroids` | `AsteroidsControl` (`firmware/src/widgets/orbitwidget/controls/`) | Purely decorative screensaver — no `params`. A static starfield with a small ringed planet labeled "Orb-It" and a few wireframe rocks that drift and bounce elastically off the round bezel's visible edge, evoking the classic vector-graphics Asteroids arcade screen. Everything is confined to a circle centered on the screen (same margin `GaugeControl`'s `OUTER_RADIUS` uses) so nothing gets clipped by the physical bezel. Animation runs at ~20fps, throttled independently of the rest of `update()`. This is OrbIt's default for screen 2 (previously a plain `custom` text label). |
 | `blank`   | clears the screen to black, no content                 | explicit "nothing assigned here" state, distinct from a slot that's never been configured |
 
 All controls are self-contained under `firmware/src/widgets/orbitwidget/` — OrbIt does not include or depend on `ClockWidget`/`WeatherWidget`/`StockWidget`/`WebDataWidget`; it only reuses `WeatherDataModel`/`StockDataModel`/`WebDataModel` as small, unmodified data/rendering classes, and owns its own HTTP fetching independently of those widgets.
@@ -80,8 +81,8 @@ Returns all 5 current slot configs as an array, index-aligned with screen number
   "screens": [
     { "screen": 0, "control": "time", "params": { "showDate": true, "showDay": true, "format24Hour": false }, "updatedAt": 1234567890 },
     { "screen": 1, "control": "weather", "params": { "element": "temperature" }, "updatedAt": 0 },
-    { "screen": 2, "control": "custom", "params": { "label": "", "data": "OrbIt Widget" }, "updatedAt": 0 },
-    { "screen": 3, "control": "weather", "params": { "element": "icon" }, "updatedAt": 1234567890 },
+    { "screen": 2, "control": "asteroids", "params": {}, "updatedAt": 0 },
+    { "screen": 3, "control": "analogClock", "params": { "background": 0, "tickColor": 65535, "hourColor": 65535, "minuteColor": 65535, "secondColor": 63488 }, "updatedAt": 1234567890 },
     { "screen": 4, "control": "ticker", "params": { "symbol": "BTC/USD" }, "updatedAt": 1234567999 }
   ]
 }
