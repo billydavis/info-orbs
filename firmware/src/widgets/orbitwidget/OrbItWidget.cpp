@@ -13,6 +13,8 @@ String sourceToString(OrbItSource source) {
         return "analogClock";
     case OrbItSource::GAUGE:
         return "gauge";
+    case OrbItSource::SYS_MONITOR:
+        return "sysMonitor";
     case OrbItSource::WEATHER:
         return "weather";
     case OrbItSource::TICKER:
@@ -50,7 +52,7 @@ String gaugeStyleToString(GaugeStyle style) {
 }
 } // namespace
 
-OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_weatherControl(manager), m_tickerControl(manager) {
+OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_sysMonitorControl(manager), m_weatherControl(manager), m_tickerControl(manager) {
     // Compile-time starting layout - orbit-api can reassign any of this at runtime. Mixes pieces of
     // Clock/Weather/Stock across screens simultaneously, which is the whole point of this widget.
     m_slots[0].source = OrbItSource::TIME;
@@ -118,6 +120,11 @@ void OrbItWidget::update(bool force) {
             // stable stamp of the full config so an unrelated redraw pass doesn't skip it forever.
             const GaugeConfig &g = m_slots[i].gaugeConfig;
             m_slots[i].pendingValue = String(g.value) + "|" + g.label + "|" + String(g.color) + "|" + String(g.trackColor) + "|" + String((int) g.style);
+        } else if (m_slots[i].source == OrbItSource::SYS_MONITOR) {
+            // Same "stable stamp of the full config" reasoning as GAUGE above - values only ever
+            // change via an orbit-api write, which already forces a redraw itself.
+            const SysMonitorConfig &s = m_slots[i].sysMonitorConfig;
+            m_slots[i].pendingValue = String(s.cpu) + "|" + String(s.cpuTemp) + "|" + String(s.gpu) + "|" + String(s.gpuTemp) + "|" + String(s.ram) + "|" + String(s.ramTotal) + "|" + String(s.ssdTemp) + "|" + s.center;
         }
     }
 
@@ -248,6 +255,9 @@ void OrbItWidget::drawSlot(int displayIndex, OrbItSlot &slot, bool force) {
     case OrbItSource::GAUGE:
         drawGaugeSlot(displayIndex, slot, force);
         break;
+    case OrbItSource::SYS_MONITOR:
+        drawSysMonitorSlot(displayIndex, slot, force);
+        break;
     case OrbItSource::WEATHER:
         drawWeatherSlot(displayIndex, slot, force);
         break;
@@ -297,6 +307,18 @@ void OrbItWidget::drawGaugeSlot(int displayIndex, OrbItSlot &slot, bool force) {
     // bookkeeping, since most gauge updates are pure value changes that shouldn't force a full
     // repaint the way switching sources into this slot does.
     m_gaugeControl.draw(displayIndex, slot.gaugeConfig, TFT_BLACK, m_gaugeStates[displayIndex], force);
+    slot.lastRenderedValue = slot.pendingValue;
+    slot.everDrawn = true;
+}
+
+void OrbItWidget::drawSysMonitorSlot(int displayIndex, OrbItSlot &slot, bool force) {
+    if (slot.pendingValue == slot.lastRenderedValue && !force) {
+        return;
+    }
+    m_manager.setFont(DEFAULT_FONT);
+    // `force` only (not slot.everDrawn) - same reasoning as drawGaugeSlot(): SysMonitorControl
+    // decides full-vs-per-quadrant redraw itself from its own SysMonitorState.
+    m_sysMonitorControl.draw(displayIndex, slot.sysMonitorConfig, m_sysMonitorStates[displayIndex], force);
     slot.lastRenderedValue = slot.pendingValue;
     slot.everDrawn = true;
 }
@@ -422,6 +444,16 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
         params["trackColor"] = slot.gaugeConfig.trackColor;
         params["style"] = gaugeStyleToString(slot.gaugeConfig.style);
         break;
+    case OrbItSource::SYS_MONITOR:
+        params["cpu"] = slot.sysMonitorConfig.cpu;
+        params["cpuTemp"] = slot.sysMonitorConfig.cpuTemp;
+        params["gpu"] = slot.sysMonitorConfig.gpu;
+        params["gpuTemp"] = slot.sysMonitorConfig.gpuTemp;
+        params["ram"] = slot.sysMonitorConfig.ram;
+        params["ramTotal"] = slot.sysMonitorConfig.ramTotal;
+        params["ssdTemp"] = slot.sysMonitorConfig.ssdTemp;
+        params["center"] = slot.sysMonitorConfig.center;
+        break;
     case OrbItSource::WEATHER:
         params["element"] = weatherElementToString(slot.weatherElement);
         break;
@@ -536,6 +568,45 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
         return true;
     }
 
+    if (control == "sysMonitor") {
+        // All optional - each falls back to SysMonitorConfig's own default (0, or "" for center) if
+        // omitted, same convention as "gauge" above.
+        SysMonitorConfig sys;
+        if (params["cpu"].is<float>()) {
+            sys.cpu = params["cpu"].as<float>();
+        }
+        if (params["cpuTemp"].is<float>()) {
+            sys.cpuTemp = params["cpuTemp"].as<float>();
+        }
+        if (params["gpu"].is<float>()) {
+            sys.gpu = params["gpu"].as<float>();
+        }
+        if (params["gpuTemp"].is<float>()) {
+            sys.gpuTemp = params["gpuTemp"].as<float>();
+        }
+        if (params["ram"].is<float>()) {
+            sys.ram = params["ram"].as<float>();
+        }
+        if (params["ramTotal"].is<float>()) {
+            sys.ramTotal = params["ramTotal"].as<float>();
+        }
+        if (params["ssdTemp"].is<float>()) {
+            sys.ssdTemp = params["ssdTemp"].as<float>();
+        }
+        if (params["center"].is<const char *>()) {
+            String center = params["center"].as<String>();
+            if (center == "none" || center == "cpu" || center == "cpuTemp" || center == "gpu" || center == "gpuTemp" || center == "ram" || center == "ssdTemp") {
+                sys.center = center;
+            } else {
+                errorMessage = "unknown sysMonitor center '" + center + "'";
+                return false;
+            }
+        }
+        outSlot.sysMonitorConfig = sys;
+        outSlot.source = OrbItSource::SYS_MONITOR;
+        return true;
+    }
+
     if (control == "weather") {
         if (!params["element"].is<const char *>()) {
             errorMessage = "control 'weather' requires params.element";
@@ -588,6 +659,7 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
 void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObject rawConfig, bool immediateFetch) {
     OrbItSlot &slot = m_slots[index];
     bool wasGauge = (slot.source == OrbItSource::GAUGE);
+    bool wasSysMonitor = (slot.source == OrbItSource::SYS_MONITOR);
     slot.source = newConfig.source;
     slot.showDate = newConfig.showDate;
     slot.showDay = newConfig.showDay;
@@ -596,6 +668,7 @@ void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     slot.tickerSymbol = newConfig.tickerSymbol;
     slot.analogColors = newConfig.analogColors;
     slot.gaugeConfig = newConfig.gaugeConfig;
+    slot.sysMonitorConfig = newConfig.sysMonitorConfig;
     // A restored-at-boot slot hasn't been "written this session" in any meaningful sense - millis()
     // resets every reboot, so a persisted value would be misleading, not just stale.
     slot.updatedAt = immediateFetch ? millis() : 0;
@@ -612,6 +685,12 @@ void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     // repaint and bring back the exact flicker this state tracking exists to avoid.
     if (slot.source == OrbItSource::GAUGE && !wasGauge) {
         m_gaugeStates[index] = GaugeState();
+    }
+
+    // Same reasoning as GaugeState above: only reset on newly becoming sysMonitor, not on every
+    // value update, or a plain value POST would force a full repaint every time.
+    if (slot.source == OrbItSource::SYS_MONITOR && !wasSysMonitor) {
+        m_sysMonitorStates[index] = SysMonitorState();
     }
 
     if (slot.source == OrbItSource::TICKER) {

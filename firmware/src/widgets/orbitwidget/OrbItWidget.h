@@ -6,6 +6,7 @@
 #include "Widget.h"
 #include "controls/AnalogClockControl.h"
 #include "controls/GaugeControl.h"
+#include "controls/SysMonitorControl.h"
 #include "controls/TickerControl.h"
 #include "controls/TimeControl.h"
 #include "controls/WeatherControl.h"
@@ -34,6 +35,8 @@ enum class OrbItSource {
     ANALOG_CLOCK,
     // Another genuinely new rendering - see GaugeControl.
     GAUGE,
+    // Yet another genuinely new rendering - see SysMonitorControl.
+    SYS_MONITOR,
     WEATHER,
     TICKER,
     // Reuses WebDataModel/WebDataElementModel (from webdatawidget/, read-only reuse - not modified,
@@ -58,6 +61,7 @@ struct OrbItSlot {
     String tickerSymbol;
     AnalogClockColors analogColors; // ANALOG_CLOCK control only
     GaugeConfig gaugeConfig; // GAUGE control only
+    SysMonitorConfig sysMonitorConfig; // SYS_MONITOR control only
 
     // Change-tracking, mirroring the isChanged()/lastValue pattern already used elsewhere in this
     // codebase (ClockWidget's m_lastDisplayNDigit, StockDataModel::isChanged()): only repaint a
@@ -94,6 +98,7 @@ private:
     void drawTimeSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawAnalogClockSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawGaugeSlot(int displayIndex, OrbItSlot &slot, bool force);
+    void drawSysMonitorSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawWeatherSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawTickerSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawCustomSlot(int displayIndex, OrbItSlot &slot, bool force);
@@ -127,6 +132,7 @@ private:
     TimeControl m_timeControl;
     AnalogClockControl m_analogClockControl;
     GaugeControl m_gaugeControl;
+    SysMonitorControl m_sysMonitorControl;
     WeatherControl m_weatherControl;
     TickerControl m_tickerControl;
 
@@ -154,6 +160,10 @@ private:
     // Per-screen "what did we actually last draw" memory for GAUGE slots, so GaugeControl can
     // update just the fill arc/text instead of a full-screen redraw every value change.
     GaugeState m_gaugeStates[NUM_SCREENS];
+
+    // Per-screen "what did we actually last draw" memory for SYS_MONITOR slots, mirroring
+    // m_gaugeStates above - same partial-redraw purpose, just per-quadrant instead of per-arc.
+    SysMonitorState m_sysMonitorStates[NUM_SCREENS];
 
     WebServer m_server{80};
     bool m_serverStarted = false;
