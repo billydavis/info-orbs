@@ -87,7 +87,12 @@ void WeatherControl::drawTemperature(int displayIndex, ScreenMode screenMode, We
 
     m_manager.selectScreen(displayIndex);
     m_manager.fillScreen(background);
-    m_manager.drawCentreString(model.getCurrentTemperature(0), centre, 90, 88);
+
+    String currentTemp = model.getCurrentTemperature(0);
+    // ° is a 2-byte UTF-8 sequence, so a 3-digit temperature (e.g. "104°") is 5 bytes
+    // vs. 4 for a 2-digit one (e.g. "72°") - scale down so it still fits on screen.
+    int tempFontSize = currentTemp.length() > 4 ? 70 : 88;
+    m_manager.drawCentreString(currentTemp, centre, 90, tempFontSize);
 
     // No glaring white chunks in Dark mode
     if (screenMode == Light) {
