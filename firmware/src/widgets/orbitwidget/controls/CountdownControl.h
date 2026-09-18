@@ -27,9 +27,15 @@ struct CountdownRuntime {
     unsigned long completedAtMs = 0; // millis() when it hit zero - drives the flash animation's phase
 
     // "what was last actually drawn", mirroring GaugeState/SysMonitorState's own pattern so
-    // CountdownControl only repaints what actually needs to change.
+    // CountdownControl only repaints what actually needs to change - the ring/text update once a
+    // second while running, and a fillScreen() on every single one of those ticks was the whole
+    // ring flashing visibly once a second. lastDrawnFraction < 0 means "nothing drawn this run yet".
     bool initialized = false;
     CountdownRunState lastDrawnState = CountdownRunState::IDLE;
+    float lastDrawnFraction = -1.0f;
+    uint32_t lastDrawnFillColor = 0;
+    String lastDrawnTimeText = "";
+    String lastDrawnLabelText = "";
 
     // Remaining time in ms as of `now`, given this runtime's current state - the single source of
     // truth both OrbItWidget (the RUNNING->COMPLETED transition, and the redraw-throttling stamp)
@@ -52,16 +58,17 @@ struct CountdownRuntime {
 };
 
 // Renders a countdown timer as a depleting ring (full circle at start, shrinking to nothing as
-// time runs out) with the remaining MM:SS centered and an optional label below - same overall
-// layout convention as GaugeControl. When the countdown reaches zero, this instead flashes the
+// time runs out, rounded leading edge via drawSmoothArc) with the remaining MM:SS centered and an
+// optional label below - same overall look and layout convention as GaugeControl's own ring style.
+// When the countdown reaches zero, this instead flashes the
 // whole screen (alternating between the accent color and black, plus "TIME'S UP") every ~500ms
 // until the slot is stopped/restarted/re-set - there's no speaker on this hardware, so a purely
 // visual, impossible-to-miss-on-a-glance signal is the whole point.
 //
-// Unlike GaugeControl this redraws the entire ring geometry on every tick rather than patching
-// just the delta - the countdown only ticks once a second (not continuously), so the extra draw
-// cost is negligible, and it sidesteps the kind of stale-pixel erase-margin bug AsteroidsControl
-// had to fix for its own incremental redraws.
+// A per-second tick only patches the delta (the newly-elapsed arc sliver going from fill to track
+// color, plus the MM:SS text) rather than a full fillScreen()+redraw - same "erase just what
+// changed" approach GaugeControl already uses for its own ring, for the same reason: an unconditional
+// full repaint every second visibly flashed the whole screen once a second.
 class CountdownControl {
 public:
     explicit CountdownControl(ScreenManager &manager);
@@ -73,7 +80,7 @@ public:
 
 private:
     void drawIdle(const CountdownConfig &config);
-    void drawTimer(const CountdownConfig &config, CountdownRuntime &runtime, unsigned long remainingMs, bool paused);
+    void drawTimer(const CountdownConfig &config, CountdownRuntime &runtime, unsigned long remainingMs, bool paused, bool fullRedraw);
     void drawCompleted(const CountdownConfig &config, CountdownRuntime &runtime);
 
     ScreenManager &m_manager;
