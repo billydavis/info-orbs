@@ -131,6 +131,10 @@ private:
     // 'countdown' control's validation in parseSlotConfig for the state-dependent preconditions
     // (e.g. 'pause' requires RUNNING) that must already have passed before this is ever called.
     void applyCountdownAction(int index, const String &action, JsonObject params);
+    // Restores whatever a countdown's 'set' displaced, if 'stop' just flagged one pending - call
+    // after applySlotConfig() has fully returned for this index (never nested inside it, see
+    // applyCountdownAction()'s 'stop' case for why).
+    void consumeCountdownRestore(int index);
 
     // orbit-api
     void setupApiRoutes();
@@ -203,6 +207,14 @@ private:
     // intentionally separate from OrbItSlot::countdownConfig (the persisted template); see
     // CountdownRuntime's own comment for why.
     CountdownRuntime m_countdownRuntimes[NUM_SCREENS];
+
+    // What a countdown's 'set' displaced on this screen (a serialized slotToJson() snapshot, taken
+    // once per countdown lifecycle - see applySlotConfig()'s snapshot-capture comment), and whether
+    // a 'stop' has flagged it ready to be restored (see consumeCountdownRestore()). Empty string /
+    // false = nothing pending. Neither of these is persisted - matches countdown's own no-persist
+    // rule (see persistLayout()'s comment).
+    String m_countdownPreviousConfig[NUM_SCREENS];
+    bool m_countdownRestorePending[NUM_SCREENS] = {false};
 
     WebServer m_server{80};
     bool m_serverStarted = false;

@@ -270,7 +270,43 @@ void OrbItWidget::applyCountdownAction(int index, const String &action, JsonObje
         runtime.remainingMsAtPause = 0;
         runtime.runStartedAtMs = 0;
         runtime.completedAtMs = 0;
+        // Flagged rather than restored right here - this runs nested inside applySlotConfig() for
+        // this same index, and restoring now would mean re-entering applySlotConfig() mid-call
+        // (corrupting whatever it does next, e.g. CUSTOM's own params handling). The actual restore
+        // happens in consumeCountdownRestore(), called by the API handlers once this outer
+        // applySlotConfig() call has fully returned.
+        if (m_countdownPreviousConfig[index].length() > 0) {
+            m_countdownRestorePending[index] = true;
+        }
     }
+}
+
+// Restores whatever was snapshotted on this screen right before a countdown's 'set' first replaced
+// it (see applySlotConfig()'s own snapshot-capture comment), if a 'stop' action just flagged one
+// pending. Must be called as a separate, sequential top-level call after applySlotConfig() has
+// fully returned for this index - never from inside it - see applyCountdownAction()'s 'stop' case.
+void OrbItWidget::consumeCountdownRestore(int index) {
+    if (!m_countdownRestorePending[index]) {
+        return;
+    }
+    m_countdownRestorePending[index] = false;
+
+    String snapshotJson = m_countdownPreviousConfig[index];
+    m_countdownPreviousConfig[index] = "";
+    if (snapshotJson.length() == 0) {
+        return;
+    }
+
+    JsonDocument doc;
+    if (deserializeJson(doc, snapshotJson)) {
+        return; // shouldn't happen - this is exactly what slotToJson()/serializeJson() wrote
+    }
+    OrbItSlot parsed;
+    String errorMessage;
+    if (!parseSlotConfig(doc.as<JsonObject>(), parsed, errorMessage, index)) {
+        return; // shouldn't happen either, for the same reason
+    }
+    applySlotConfig(index, parsed, doc.as<JsonObject>());
 }
 
 // Mirrors WeatherWidget::getWeatherData() - duplicated rather than shared since OrbIt is meant to
@@ -665,32 +701,39 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
             return false;
         }
         String action = params["action"].as<String>();
-        // screenIndex < 0 means "no specific screen to validate state against" - only
-        // loadPersistedLayout()'s restore path would hit that, and it never reaches this branch (see
-        // its own countdown special-case), so this is effectively always a real screen index here.
+        // screenIndex < 0 means "no specific screen to validate state against" - not currently
+        // reachable (every live caller passes a real index), kept only as a safe fallback.
+        bool isCurrentlyCountdown = screenIndex >= 0 && m_slots[screenIndex].source == OrbItSource::COUNTDOWN;
         CountdownRunState currentState = screenIndex >= 0 ? m_countdownRuntimes[screenIndex].state : CountdownRunState::IDLE;
 
         if (action == "set") {
+            // The only action allowed to turn a non-countdown slot into a countdown for the first
+            // time - every other action below requires the slot to already be one.
             if (!params["durationSeconds"].is<int>() || params["durationSeconds"].as<int>() <= 0) {
                 errorMessage = "countdown action 'set' requires a positive integer params.durationSeconds";
                 return false;
             }
         } else if (action == "pause") {
-            if (currentState != CountdownRunState::RUNNING) {
+            if (!isCurrentlyCountdown || currentState != CountdownRunState::RUNNING) {
                 errorMessage = "countdown action 'pause' requires the countdown to currently be running";
                 return false;
             }
         } else if (action == "resume") {
-            if (currentState != CountdownRunState::PAUSED) {
+            if (!isCurrentlyCountdown || currentState != CountdownRunState::PAUSED) {
                 errorMessage = "countdown action 'resume' requires the countdown to currently be paused";
                 return false;
             }
         } else if (action == "restart") {
-            if (screenIndex >= 0 && m_slots[screenIndex].countdownConfig.durationSeconds == 0) {
-                errorMessage = "countdown action 'restart' requires a duration to already be set (use action 'set' first)";
+            if (!isCurrentlyCountdown || m_slots[screenIndex].countdownConfig.durationSeconds == 0) {
+                errorMessage = "countdown action 'restart' requires the screen to already be a countdown with a duration set (use action 'set' first)";
                 return false;
             }
-        } else if (action != "stop") {
+        } else if (action == "stop") {
+            if (!isCurrentlyCountdown) {
+                errorMessage = "countdown action 'stop' requires the screen to currently be a countdown";
+                return false;
+            }
+        } else {
             errorMessage = "unknown countdown action '" + action + "'";
             return false;
         }
@@ -874,6 +917,21 @@ void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     OrbItSlot &slot = m_slots[index];
     bool wasGauge = (slot.source == OrbItSource::GAUGE);
     bool wasSysMonitor = (slot.source == OrbItSource::SYS_MONITOR);
+
+    // A countdown's 'set' action turning a non-countdown slot into a countdown for the first time
+    // snapshots whatever was here before, so 'stop' can hand the screen back later (consumed by
+    // consumeCountdownRestore()). Must happen here, before slot.* below gets overwritten by
+    // newConfig - slotToJson(index, slot, ...) needs the OLD (pre-overwrite) slot.
+    if (newConfig.source == OrbItSource::COUNTDOWN && slot.source != OrbItSource::COUNTDOWN) {
+        JsonObject peekParams = rawConfig["params"].is<JsonObject>() ? rawConfig["params"].as<JsonObject>() : JsonObject();
+        bool isSetAction = peekParams["action"].is<const char *>() && String(peekParams["action"].as<const char *>()) == "set";
+        if (isSetAction) {
+            JsonDocument snapshotDoc;
+            slotToJson(index, slot, snapshotDoc.to<JsonObject>());
+            serializeJson(snapshotDoc, m_countdownPreviousConfig[index]);
+        }
+    }
+
     slot.source = newConfig.source;
     slot.showDate = newConfig.showDate;
     slot.showDay = newConfig.showDay;
@@ -1047,6 +1105,7 @@ void OrbItWidget::handlePostScreen(int index) {
     }
 
     applySlotConfig(index, parsed, doc.as<JsonObject>());
+    consumeCountdownRestore(index);
     persistLayout();
 
     JsonDocument response;
@@ -1130,6 +1189,7 @@ void OrbItWidget::handlePostScreens() {
 
     for (int i = 0; i < count; i++) {
         applySlotConfig(indices[i], parsedSlots[i], rawEntries[i]);
+        consumeCountdownRestore(indices[i]);
     }
     if (count > 0) {
         persistLayout();
