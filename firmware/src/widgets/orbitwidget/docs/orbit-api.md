@@ -37,7 +37,7 @@ Each screen holds one **slot config**: a `control` name plus a `params` object w
 ```json
 {
   "control": "ticker",
-  "params": { "symbol": "BTC/USD" }
+  "params": { "symbol": "BTC/USD", "pollIntervalSeconds": 300 }
 }
 ```
 
@@ -61,10 +61,42 @@ Each screen holds one **slot config**: a `control` name plus a `params` object w
 | `gauge` | `GaugeControl` (`firmware/src/widgets/orbitwidget/controls/`) | Circular progress gauge for an arbitrary value — track arc + partial fill arc + centered value/label text. Mocked up live (three styles, real 240×240 scale) before any of this was written. All `params` optional: `label` (default none), `value`/`min`/`max` (default `0`/`0`/`100`), `color`/`trackColor` (color names via `Utils::stringToColor()`, default cyan/darkgrey), `style` — `"ring"` (full 360°, default), `"speedometer"` (270° sweep, gap at bottom), or `"instrument"` (300° sweep with 10% tick marks, thinner ring). The value renders with a `%` suffix only for the default 0–100 range — an arbitrary range (e.g. a temperature) doesn't get a misleading percent sign. Uses `ScreenManager::drawArc` (the same function `StockWidget` already uses for its full-circle price ring) rather than `AnalogClockControl`'s own hand-rolled trig — see the angle-convention note in `GaugeControl.h` for how its "0°=12 o'clock" convention gets converted to `drawArc`'s native "0°=6 o'clock" one (confirmed directly from the TFT_eSPI source, not assumed). A pure value change only redraws the fill arc's leading edge and the value text (no `fillScreen()`, no flicker) via a `GaugeState` remembering what was last actually drawn per screen — a style or color change still forces a full repaint, since an already-drawn arc segment can't be cheaply recolored in place. |
 | `sysMonitor` | `SysMonitorControl` (`firmware/src/widgets/orbitwidget/controls/`) | A CPU/GPU/RAM/drive-temp dashboard on a single screen — four fixed-position quadrant blocks (CPU top-left, GPU top-right, RAM bottom-left, drive temp bottom-right), each a value + label + small horizontal fill bar, plus an optional center readout. Mocked up as "Halo Cluster" (originally four ring gauges, later swapped for the bars seen here after live testing showed the rings didn't leave enough room) at https://claude.ai/artifact/EXGMbSSKAvayjQoMen4rws. All `params` optional, default `0`: `cpu`/`gpu`/`ram` (percent, 0–100), `cpuTemp`/`gpuTemp`/`ssdTemp` (°C), `ramTotal` (GB, shown alongside RAM's label; omit/0 to hide it). `params.center` picks what the middle of the screen shows: one of `"cpu"`, `"cpuTemp"`, `"gpu"`, `"gpuTemp"`, `"ram"`, `"ssdTemp"` to pin a specific reading there, `"none"` to leave it blank, or omit it (default) to auto-pick whichever of cpu/gpu/ram is currently highest. Quadrant colors are fixed per metric (cyan/magenta/orange/red), not configurable — the color coding is the layout's whole identity. Redraws are per-quadrant (and separately, the center): a `SysMonitorState` remembers what was last drawn for each of the four blocks and the center independently, so a change to one value only repaints that one block, matching `GaugeState`'s approach. |
 | `weather` | `WeatherControl` (`firmware/src/widgets/orbitwidget/controls/`) | `params.element` picks which piece (e.g. `icon`, `temperature`, `condition`) |
-| `ticker`  | `TickerControl` (`firmware/src/widgets/orbitwidget/controls/`) | `params.symbol` — any symbol `StockWidget`/twelvedata already accepts, including crypto/forex (e.g. `BTC/USD`) per the existing widget's convention |
+| `ticker`  | `TickerControl` (`firmware/src/widgets/orbitwidget/controls/`) | `params.symbol` — any symbol `StockWidget`/twelvedata already accepts, including crypto/forex (e.g. `BTC/USD`) per the existing widget's convention. `params.pollIntervalSeconds` (optional, default `900` = 15 minutes, matching `StockWidget`) sets how often this slot re-fetches its price — independently of every other ticker slot, and independently of `StockWidget`'s own timer if that widget is also enabled. Silently clamped up to a **300-second (5-minute) floor**: twelvedata's free tier is 800 calls/day (confirmed at <https://twelvedata.com/pricing>), and that daily cap — not the 8-calls/minute one — is what actually limits how often a slot can poll forever; 300s keeps one continuously-polling ticker slot at 288 calls/day with headroom to spare. Note this floor is per-slot only — OrbIt does not track or divide a shared daily budget across multiple simultaneous ticker slots, so setting several screens to `ticker` at once is still on you to keep reasonable. |
 | `custom`  | inline drawing, reusing `WebDataModel`/`WebDataElementModel` classes directly | `params` is exactly one `WebDataWidget` "displays" entry (`label`/`data`/`color`/`labelColor`/`background`/`fullDraw`) — either a plain string in `data` for word-wrapped centered text, or an array of drawing primitives (`type: text\|line\|rectangle\|triangle\|circle\|arc\|character`). No new drawing DSL invented. Note: reading a rich (element-array) custom slot back via `GET` is lossy — it reports `elementCount` rather than the original primitives, since `WebDataModel` doesn't expose a way to reconstruct them. |
 | `asteroids` | `AsteroidsControl` (`firmware/src/widgets/orbitwidget/controls/`) | Purely decorative screensaver — no `params`. A static starfield with a small ringed planet labeled "Orb-It" and a few wireframe rocks that drift and bounce elastically off the round bezel's visible edge, evoking the classic vector-graphics Asteroids arcade screen. Everything is confined to a circle centered on the screen (same margin `GaugeControl`'s `OUTER_RADIUS` uses) so nothing gets clipped by the physical bezel. Animation runs at ~20fps, throttled independently of the rest of `update()`. This is OrbIt's default for screen 2 (previously a plain `custom` text label). |
+| `countdown` | `CountdownControl` (`firmware/src/widgets/orbitwidget/controls/`) | A countdown timer, command-driven via `params.action` rather than a plain value write — see its own section below. |
 | `blank`   | clears the screen to black, no content                 | explicit "nothing assigned here" state, distinct from a slot that's never been configured |
+
+### `countdown` control
+
+Unlike every other control, `countdown` isn't "POST the full desired state" — it's a small command verb (`params.action`) applied to whatever that screen's countdown is currently doing. There's no speaker on this hardware, so "notify" is purely visual: when the countdown reaches zero, the whole screen flashes (alternating between the accent color and black) with "TIME'S UP" until you dismiss it.
+
+`params.action` is one of:
+
+| action | requires | effect |
+|--------|----------|--------|
+| `set` | `durationSeconds` (positive integer). `label` and `color` (a color name, parsed the same way `analogClock`/`gauge` colors are) are optional. | Configures (replacing any previous label/color) and immediately starts a fresh countdown from `durationSeconds`. |
+| `pause` | the countdown must currently be `running` | `400` otherwise | Freezes the remaining time. |
+| `resume` | the countdown must currently be `paused` | `400` otherwise | Continues counting down from exactly where `pause` left off. |
+| `restart` | a duration must already have been configured via `set` at some point | `400` otherwise | Resets to the full original duration (reusing the existing label/color) and starts running again — from any state, including `completed`. |
+| `stop` | always valid | Cancels the countdown entirely, back to `idle`. A no-op if it was already idle. |
+
+```json
+{ "control": "countdown", "params": { "action": "set", "durationSeconds": 900, "label": "Focus", "color": "cyan" } }
+```
+```json
+{ "control": "countdown", "params": { "action": "pause" } }
+```
+
+`GET` reports the slot's configured template plus live status — `label`/`durationSeconds`/`color` (the last `set` values), `state` (`idle`/`running`/`paused`/`completed`), and `remainingSeconds`:
+
+```json
+{ "screen": 1, "control": "countdown", "params": { "label": "Focus", "durationSeconds": 900, "color": 65535, "state": "running", "remainingSeconds": 612 }, "updatedAt": 1234567890 }
+```
+
+**What persists across a reboot: nothing.** A countdown is a one-off "timebox this task" tool, not a permanent screen assignment the way every other control is — unlike `ticker`/`gauge`/etc, orbit-api's own layout persistence (the same mechanism `POST` uses to survive a power cycle) deliberately skips `countdown` slots entirely, template included. After a reboot, a screen that was a countdown just falls back to whatever it was before (its compile-time default, or another config you'd set on it) as if the countdown had never been assigned there. Set it again with `action: "set"` whenever you actually want one running.
+
+**Rate-limit note:** none. Unlike `ticker`, this never calls an external API — the screen just redraws roughly once a second while running (and twice a second while flashing `completed`), so there's no floor to worry about here.
 
 All controls are self-contained under `firmware/src/widgets/orbitwidget/` — OrbIt does not include or depend on `ClockWidget`/`WeatherWidget`/`StockWidget`/`WebDataWidget`; it only reuses `WeatherDataModel`/`StockDataModel`/`WebDataModel` as small, unmodified data/rendering classes, and owns its own HTTP fetching independently of those widgets.
 
@@ -83,7 +115,7 @@ Returns all 5 current slot configs as an array, index-aligned with screen number
     { "screen": 1, "control": "weather", "params": { "element": "temperature" }, "updatedAt": 0 },
     { "screen": 2, "control": "asteroids", "params": {}, "updatedAt": 0 },
     { "screen": 3, "control": "analogClock", "params": { "background": 0, "tickColor": 65535, "hourColor": 65535, "minuteColor": 65535, "secondColor": 63488 }, "updatedAt": 1234567890 },
-    { "screen": 4, "control": "ticker", "params": { "symbol": "BTC/USD" }, "updatedAt": 1234567999 }
+    { "screen": 4, "control": "ticker", "params": { "symbol": "BTC/USD", "pollIntervalSeconds": 900 }, "updatedAt": 1234567999 }
   ]
 }
 ```
@@ -118,6 +150,12 @@ Body: one slot config (no `screen` field needed, it's in the URL):
 ```
 
 Replaces screen `n`'s config entirely (not a merge/patch of `params`).
+
+### `POST /orbit/api/v1/screens/{n}/refresh`
+
+Ticker slots only — immediately re-fetches that slot's price from twelvedata, bypassing its `pollIntervalSeconds`/the 5-minute floor entirely (see the `ticker` row in the control table above). That floor exists to keep OrbIt's own *automatic* polling within twelvedata's free-tier budget; it isn't a lockout on asking for the latest price on demand, same as `StockWidget`'s existing middle-button refresh. No body. `400` if screen `n` isn't currently a `ticker` slot. Response is the slot's config, same shape as `GET /orbit/api/v1/screens/{n}`.
+
+Repeatedly hammering this endpoint can still blow through twelvedata's 800-calls/day cap — that's on the caller, not something OrbIt tracks or throttles for you.
 
 ### Response on successful write
 

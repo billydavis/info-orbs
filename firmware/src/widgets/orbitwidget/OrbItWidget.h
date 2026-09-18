@@ -6,6 +6,7 @@
 #include "Widget.h"
 #include "controls/AnalogClockControl.h"
 #include "controls/AsteroidsControl.h"
+#include "controls/CountdownControl.h"
 #include "controls/GaugeControl.h"
 #include "controls/SysMonitorControl.h"
 #include "controls/TickerControl.h"
@@ -40,6 +41,8 @@ enum class OrbItSource {
     SYS_MONITOR,
     // Purely decorative screensaver - see AsteroidsControl. No config; OrbIt's default for screen 2.
     ASTEROIDS,
+    // Set/pause/resume/stop/restart via orbit-api params.action - see CountdownControl.
+    COUNTDOWN,
     WEATHER,
     TICKER,
     // Reuses WebDataModel/WebDataElementModel (from webdatawidget/, read-only reuse - not modified,
@@ -62,9 +65,20 @@ struct OrbItSlot {
     bool format24Hour = false; // TIME control only - independent of GlobalTime's own device-wide setting
     WeatherElement weatherElement = WeatherElement::ICON;
     String tickerSymbol;
+    // TICKER control only. Independent per slot (not shared with StockWidget's own timer, nor with
+    // any other OrbIt ticker slot) so orbit-api can give each screen its own cadence. Defaults to
+    // 15 minutes, matching StockWidget's own default. See MIN_TICKER_POLL_INTERVAL_MS in
+    // OrbItWidget.cpp for why this can't be set arbitrarily low.
+    unsigned long tickerPollIntervalMs = 900000;
+    unsigned long tickerDelayPrev = 0; // millis() at this slot's last fetch, 0 = never fetched yet
     AnalogClockColors analogColors; // ANALOG_CLOCK control only
     GaugeConfig gaugeConfig; // GAUGE control only
     SysMonitorConfig sysMonitorConfig; // SYS_MONITOR control only
+    // COUNTDOWN control only. The last-configured duration/label/color - in memory only, not
+    // persisted (see OrbItWidget::persistLayout()'s comment on why countdown slots are skipped
+    // entirely). The live running/paused/remaining-time state lives separately in OrbItWidget's
+    // m_countdownRuntimes.
+    CountdownConfig countdownConfig;
 
     // Change-tracking, mirroring the isChanged()/lastValue pattern already used elsewhere in this
     // codebase (ClockWidget's m_lastDisplayNDigit, StockDataModel::isChanged()): only repaint a
@@ -103,14 +117,20 @@ private:
     void drawGaugeSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawSysMonitorSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawAsteroidsSlot(int displayIndex, OrbItSlot &slot, bool force);
+    void drawCountdownSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawWeatherSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawTickerSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawCustomSlot(int displayIndex, OrbItSlot &slot, bool force);
 
     void updateWeather(bool force);
     void updateTicker(bool force);
+    void updateCountdown(bool force);
     bool fetchWeatherData(WeatherDataModel &model);
     void fetchTickerData(StockDataModel &stock);
+    // Mutates m_countdownRuntimes[index]/m_slots[index].countdownConfig per params.action - see the
+    // 'countdown' control's validation in parseSlotConfig for the state-dependent preconditions
+    // (e.g. 'pause' requires RUNNING) that must already have passed before this is ever called.
+    void applyCountdownAction(int index, const String &action, JsonObject params);
 
     // orbit-api
     void setupApiRoutes();
@@ -118,7 +138,12 @@ private:
     void handleGetScreen(int index);
     void handlePostScreens();
     void handlePostScreen(int index);
-    bool parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &errorMessage);
+    void handleRefreshScreen(int index);
+    // screenIndex is used only by the 'countdown' control, to validate an action (e.g. 'pause')
+    // against that specific screen's current live CountdownRuntime state - every other control
+    // ignores it. -1 means "no specific screen" (used by loadPersistedLayout()'s restore path,
+    // which never reaches the countdown validation branch - see its own countdown special-case).
+    bool parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &errorMessage, int screenIndex = -1);
     void slotToJson(int index, const OrbItSlot &slot, JsonObject out);
     void sendJson(int code, const JsonDocument &doc);
     void sendError(int code, const String &message);
@@ -138,6 +163,7 @@ private:
     GaugeControl m_gaugeControl;
     SysMonitorControl m_sysMonitorControl;
     AsteroidsControl m_asteroidsControl;
+    CountdownControl m_countdownControl;
     WeatherControl m_weatherControl;
     TickerControl m_tickerControl;
 
@@ -149,10 +175,9 @@ private:
     unsigned long m_weatherDelayPrev = 0;
 
     // One StockDataModel per screen that wants a ticker - simplest v1; no de-duplication if two
-    // slots happen to request the same symbol.
+    // slots happen to request the same symbol. Each slot polls on its own schedule (OrbItSlot::
+    // tickerPollIntervalMs/tickerDelayPrev), not a shared timer.
     StockDataModel m_tickerModels[NUM_SCREENS];
-    unsigned long m_tickerDelay = 900000; // matches StockWidget's refresh rate
-    unsigned long m_tickerDelayPrev = 0;
 
     // One WebDataModel per screen assigned "custom" - same reuse-not-share approach as the ticker
     // models above.
@@ -173,6 +198,11 @@ private:
     // Per-screen starfield/planet/rock animation state for ASTEROIDS slots - same "caller owns the
     // per-screen memory" pattern as m_gaugeStates/m_sysMonitorStates above.
     AsteroidsState m_asteroidsStates[NUM_SCREENS];
+
+    // Per-screen live countdown state (running/paused/remaining time) for COUNTDOWN slots -
+    // intentionally separate from OrbItSlot::countdownConfig (the persisted template); see
+    // CountdownRuntime's own comment for why.
+    CountdownRuntime m_countdownRuntimes[NUM_SCREENS];
 
     WebServer m_server{80};
     bool m_serverStarted = false;
