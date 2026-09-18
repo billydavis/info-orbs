@@ -75,11 +75,11 @@ Unlike every other control, `countdown` isn't "POST the full desired state" — 
 
 | action | requires | effect |
 |--------|----------|--------|
-| `set` | `durationSeconds` (positive integer). `label` and `color` (a color name, parsed the same way `analogClock`/`gauge` colors are) are optional. | Configures (replacing any previous label/color) and immediately starts a fresh countdown from `durationSeconds`. |
-| `pause` | the countdown must currently be `running` | `400` otherwise | Freezes the remaining time. |
-| `resume` | the countdown must currently be `paused` | `400` otherwise | Continues counting down from exactly where `pause` left off. |
-| `restart` | a duration must already have been configured via `set` at some point | `400` otherwise | Resets to the full original duration (reusing the existing label/color) and starts running again — from any state, including `completed`. |
-| `stop` | always valid | Cancels the countdown entirely, back to `idle`. A no-op if it was already idle. |
+| `set` | `durationSeconds` (positive integer). `label` and `color` (a color name, parsed the same way `analogClock`/`gauge` colors are) are optional. Always valid, on any slot — this is the only action allowed to turn a non-countdown screen into a countdown in the first place. | Configures (replacing any previous label/color) and immediately starts a fresh countdown from `durationSeconds`. The very first `set` on a given screen also snapshots whatever control was on that screen beforehand — see "Dismissing restores what was there before" below. |
+| `pause` | screen must currently be a `countdown` and `running` | `400` otherwise | Freezes the remaining time. |
+| `resume` | screen must currently be a `countdown` and `paused` | `400` otherwise | Continues counting down from exactly where `pause` left off. |
+| `restart` | screen must currently be a `countdown` with a duration already set | `400` otherwise | Resets to the full original duration (reusing the existing label/color) and starts running again — from any state, including `completed`. |
+| `stop` | screen must currently be a `countdown` | `400` otherwise | Dismisses the countdown — see below. A no-op-ish "did nothing but succeeded" isn't possible here: if the screen isn't a countdown, this always 400s rather than silently doing nothing. |
 
 ```json
 { "control": "countdown", "params": { "action": "set", "durationSeconds": 900, "label": "Focus", "color": "cyan" } }
@@ -94,7 +94,9 @@ Unlike every other control, `countdown` isn't "POST the full desired state" — 
 { "screen": 1, "control": "countdown", "params": { "label": "Focus", "durationSeconds": 900, "color": 65535, "state": "running", "remainingSeconds": 612 }, "updatedAt": 1234567890 }
 ```
 
-**What persists across a reboot: nothing.** A countdown is a one-off "timebox this task" tool, not a permanent screen assignment the way every other control is — unlike `ticker`/`gauge`/etc, orbit-api's own layout persistence (the same mechanism `POST` uses to survive a power cycle) deliberately skips `countdown` slots entirely, template included. After a reboot, a screen that was a countdown just falls back to whatever it was before (its compile-time default, or another config you'd set on it) as if the countdown had never been assigned there. Set it again with `action: "set"` whenever you actually want one running.
+**Dismissing (`stop`) restores what was there before.** The first `action: "set"` to turn a screen into a countdown snapshots that screen's previous control (its full config, not just which one it was — a `ticker`'s symbol and poll interval, a `gauge`'s value/style, etc.) internally. `stop` hands the screen back to that exact config rather than leaving it parked as an idle countdown — after `stop`, `GET` on that screen shows the *restored* control, not `countdown`. This snapshot stays pinned to whatever was there *before the first* `set` — calling `set` again on an already-idle/paused countdown (to start a new one without dismissing first) does **not** re-snapshot; `stop` still restores the original pre-countdown control. If a screen had never had anything explicitly configured (still showing its compile-time default), that default is what gets restored. One caveat inherited from `custom`'s own lossy `GET`: if the displaced control was a rich (element-array) `custom` slot, only `elementCount` — not the original drawing primitives — is in the snapshot, so restoring it won't reproduce that exact drawing (see the `custom` row above).
+
+**What persists across a reboot: nothing.** A countdown is a one-off "timebox this task" tool, not a permanent screen assignment the way every other control is — unlike `ticker`/`gauge`/etc, orbit-api's own layout persistence (the same mechanism `POST` uses to survive a power cycle) deliberately skips `countdown` slots entirely, template and pending pre-countdown snapshot both included. After a reboot, a screen that was a countdown just falls back to whatever it was before *any* countdown was ever set on it (its compile-time default, or another config you'd set on it) as if the countdown had never been assigned there.
 
 **Rate-limit note:** none. Unlike `ticker`, this never calls an external API — the screen just redraws roughly once a second while running (and twice a second while flashing `completed`), so there's no floor to worry about here.
 
