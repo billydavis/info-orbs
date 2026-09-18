@@ -5,6 +5,16 @@
 namespace {
 const char *API_BASE = "/orbit/api/v1/screens";
 
+// twelvedata's free tier is 8 calls/minute and 800 calls/day (verified against
+// https://twelvedata.com/pricing) - the daily cap, not the per-minute one, is what actually
+// constrains a ticker slot meant to poll continuously: at 800/day, one ticker calling forever can
+// only average one call every ~108s. A 5-minute (300s) floor keeps a single continuously-polling
+// ticker slot well under that (288 calls/day) with headroom for a second slot before the daily cap
+// becomes a real risk - orbit-api deliberately does not try to track/divide the shared daily budget
+// across slots itself (that's a bigger feature); if you configure several screens as tickers, it's
+// on you to keep the combined polling reasonable.
+const unsigned long MIN_TICKER_POLL_INTERVAL_MS = 300000;
+
 String sourceToString(OrbItSource source) {
     switch (source) {
     case OrbItSource::TIME:
@@ -17,6 +27,8 @@ String sourceToString(OrbItSource source) {
         return "sysMonitor";
     case OrbItSource::ASTEROIDS:
         return "asteroids";
+    case OrbItSource::COUNTDOWN:
+        return "countdown";
     case OrbItSource::WEATHER:
         return "weather";
     case OrbItSource::TICKER:
@@ -52,9 +64,23 @@ String gaugeStyleToString(GaugeStyle style) {
     }
     return "";
 }
+
+String countdownStateToString(CountdownRunState state) {
+    switch (state) {
+    case CountdownRunState::RUNNING:
+        return "running";
+    case CountdownRunState::PAUSED:
+        return "paused";
+    case CountdownRunState::COMPLETED:
+        return "completed";
+    case CountdownRunState::IDLE:
+    default:
+        return "idle";
+    }
+}
 } // namespace
 
-OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_sysMonitorControl(manager), m_asteroidsControl(manager), m_weatherControl(manager), m_tickerControl(manager) {
+OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_sysMonitorControl(manager), m_asteroidsControl(manager), m_countdownControl(manager), m_weatherControl(manager), m_tickerControl(manager) {
     // Compile-time starting layout - orbit-api can reassign any of this at runtime. Mixes pieces of
     // Clock/Weather/Stock across screens simultaneously, which is the whole point of this widget.
     m_slots[0].source = OrbItSource::TIME;
@@ -127,6 +153,25 @@ void OrbItWidget::update(bool force) {
             // Throttles the animation to ~20fps regardless of how fast loop() itself spins - a new
             // stamp every 50ms is what actually drives drawAsteroidsSlot()'s redraw below.
             m_slots[i].pendingValue = String(millis() / 50);
+        } else if (m_slots[i].source == OrbItSource::COUNTDOWN) {
+            const CountdownRuntime &runtime = m_countdownRuntimes[i];
+            switch (runtime.state) {
+            case CountdownRunState::RUNNING:
+                // Once-a-second granularity is all the ring/MM:SS display needs.
+                m_slots[i].pendingValue = "running:" + String(runtime.remainingMs(millis()) / 1000);
+                break;
+            case CountdownRunState::COMPLETED:
+                // Twice a second, to drive CountdownControl's flash animation.
+                m_slots[i].pendingValue = "completed:" + String(millis() / 500);
+                break;
+            case CountdownRunState::PAUSED:
+                m_slots[i].pendingValue = "paused:" + String(runtime.remainingMsAtPause);
+                break;
+            case CountdownRunState::IDLE:
+            default:
+                m_slots[i].pendingValue = "idle";
+                break;
+            }
         }
     }
 
@@ -135,6 +180,9 @@ void OrbItWidget::update(bool force) {
     }
     if (anySlotUses(OrbItSource::TICKER)) {
         updateTicker(force);
+    }
+    if (anySlotUses(OrbItSource::COUNTDOWN)) {
+        updateCountdown(force);
     }
 }
 
@@ -145,14 +193,83 @@ void OrbItWidget::updateWeather(bool force) {
     }
 }
 
+// Each TICKER slot polls on its own schedule (slot.tickerPollIntervalMs/tickerDelayPrev), not one
+// shared timer for every ticker slot - orbit-api can give screens tracking different symbols
+// different cadences. `force` still forces every ticker slot to refetch together (used for the
+// one-time boot fetch via WidgetSet::initializeAllWidgetsData()), independent of each slot's own
+// due time.
 void OrbItWidget::updateTicker(bool force) {
-    if (force || m_tickerDelayPrev == 0 || (millis() - m_tickerDelayPrev) >= m_tickerDelay) {
-        for (int i = 0; i < NUM_SCREENS; i++) {
-            if (m_slots[i].source == OrbItSource::TICKER) {
-                fetchTickerData(m_tickerModels[i]);
-            }
+    for (int i = 0; i < NUM_SCREENS; i++) {
+        OrbItSlot &slot = m_slots[i];
+        if (slot.source != OrbItSource::TICKER) {
+            continue;
         }
-        m_tickerDelayPrev = millis();
+        if (force || slot.tickerDelayPrev == 0 || (millis() - slot.tickerDelayPrev) >= slot.tickerPollIntervalMs) {
+            fetchTickerData(m_tickerModels[i]);
+            slot.tickerDelayPrev = millis();
+        }
+    }
+}
+
+// The only thing that needs to happen here is noticing a RUNNING countdown has reached zero and
+// flipping it to COMPLETED (recording completedAtMs so CountdownControl knows the flash animation's
+// phase) - everything else about a countdown's state only ever changes via an explicit orbit-api
+// action (applyCountdownAction()), not from the passage of time on its own.
+void OrbItWidget::updateCountdown(bool force) {
+    unsigned long now = millis();
+    for (int i = 0; i < NUM_SCREENS; i++) {
+        if (m_slots[i].source != OrbItSource::COUNTDOWN) {
+            continue;
+        }
+        CountdownRuntime &runtime = m_countdownRuntimes[i];
+        if (runtime.state == CountdownRunState::RUNNING && runtime.remainingMs(now) == 0) {
+            runtime.state = CountdownRunState::COMPLETED;
+            runtime.completedAtMs = now;
+        }
+    }
+}
+
+// Mutates m_countdownRuntimes[index] (and, for 'set', slot.countdownConfig) per the given action.
+// Called only from applySlotConfig() after parseSlotConfig() has already validated the action
+// against this slot's current state (e.g. 'pause' requires RUNNING) - this doesn't re-check.
+void OrbItWidget::applyCountdownAction(int index, const String &action, JsonObject params) {
+    OrbItSlot &slot = m_slots[index];
+    CountdownRuntime &runtime = m_countdownRuntimes[index];
+    unsigned long now = millis();
+
+    if (action == "set") {
+        slot.countdownConfig.durationSeconds = (unsigned long) params["durationSeconds"].as<int>();
+        slot.countdownConfig.label = params["label"].is<const char *>() ? params["label"].as<String>() : "";
+        // Full replace, like every other control's params - a 'set' without a color falls back to
+        // the default rather than keeping whatever was configured before.
+        slot.countdownConfig.color = params["color"].is<const char *>() ? Utils::stringToColor(params["color"].as<String>()) : TFT_CYAN;
+
+        runtime.totalMs = slot.countdownConfig.durationSeconds * 1000UL;
+        runtime.runStartedAtMs = now;
+        runtime.remainingMsAtPause = 0;
+        runtime.completedAtMs = 0;
+        runtime.state = CountdownRunState::RUNNING;
+    } else if (action == "restart") {
+        // Reuses the existing label/color/duration template - only the timing resets.
+        runtime.totalMs = slot.countdownConfig.durationSeconds * 1000UL;
+        runtime.runStartedAtMs = now;
+        runtime.remainingMsAtPause = 0;
+        runtime.completedAtMs = 0;
+        runtime.state = CountdownRunState::RUNNING;
+    } else if (action == "pause") {
+        unsigned long elapsed = now - runtime.runStartedAtMs;
+        runtime.remainingMsAtPause = elapsed >= runtime.totalMs ? 0 : runtime.totalMs - elapsed;
+        runtime.state = CountdownRunState::PAUSED;
+    } else if (action == "resume") {
+        // Recompute a virtual start time so remainingMs() keeps counting down seamlessly from
+        // exactly where 'pause' left off, without needing a separate "paused duration" field.
+        runtime.runStartedAtMs = now - (runtime.totalMs - runtime.remainingMsAtPause);
+        runtime.state = CountdownRunState::RUNNING;
+    } else if (action == "stop") {
+        runtime.state = CountdownRunState::IDLE;
+        runtime.remainingMsAtPause = 0;
+        runtime.runStartedAtMs = 0;
+        runtime.completedAtMs = 0;
     }
 }
 
@@ -263,6 +380,9 @@ void OrbItWidget::drawSlot(int displayIndex, OrbItSlot &slot, bool force) {
     case OrbItSource::ASTEROIDS:
         drawAsteroidsSlot(displayIndex, slot, force);
         break;
+    case OrbItSource::COUNTDOWN:
+        drawCountdownSlot(displayIndex, slot, force);
+        break;
     case OrbItSource::WEATHER:
         drawWeatherSlot(displayIndex, slot, force);
         break;
@@ -339,6 +459,16 @@ void OrbItWidget::drawAsteroidsSlot(int displayIndex, OrbItSlot &slot, bool forc
     slot.everDrawn = true;
 }
 
+void OrbItWidget::drawCountdownSlot(int displayIndex, OrbItSlot &slot, bool force) {
+    if (slot.pendingValue == slot.lastRenderedValue && !force) {
+        return;
+    }
+    bool fullRedraw = force || !slot.everDrawn;
+    m_countdownControl.draw(displayIndex, slot.countdownConfig, m_countdownRuntimes[displayIndex], fullRedraw);
+    slot.lastRenderedValue = slot.pendingValue;
+    slot.everDrawn = true;
+}
+
 void OrbItWidget::drawWeatherSlot(int displayIndex, OrbItSlot &slot, bool force) {
     if (!m_weatherModel.isChanged() && !force && slot.everDrawn) {
         return;
@@ -408,6 +538,7 @@ void OrbItWidget::setupApiRoutes() {
         String uri = String(API_BASE) + "/" + String(i);
         m_server.on(uri, HTTP_GET, [this, i]() { handleGetScreen(i); });
         m_server.on(uri, HTTP_POST, [this, i]() { handlePostScreen(i); });
+        m_server.on(uri + "/refresh", HTTP_POST, [this, i]() { handleRefreshScreen(i); });
     }
 
     // Only routes for screens 0..NUM_SCREENS-1 are registered above, so an out-of-range index (or
@@ -472,11 +603,22 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
         break;
     case OrbItSource::ASTEROIDS:
         break;
+    case OrbItSource::COUNTDOWN: {
+        params["label"] = slot.countdownConfig.label;
+        params["durationSeconds"] = slot.countdownConfig.durationSeconds;
+        params["color"] = slot.countdownConfig.color;
+        // Status fields, not part of what a write accepts - GET is the only place these matter.
+        const CountdownRuntime &runtime = m_countdownRuntimes[index];
+        params["state"] = countdownStateToString(runtime.state);
+        params["remainingSeconds"] = runtime.remainingMs(millis()) / 1000;
+        break;
+    }
     case OrbItSource::WEATHER:
         params["element"] = weatherElementToString(slot.weatherElement);
         break;
     case OrbItSource::TICKER:
         params["symbol"] = slot.tickerSymbol;
+        params["pollIntervalSeconds"] = slot.tickerPollIntervalMs / 1000;
         break;
     case OrbItSource::CUSTOM: {
         // Best-effort, lossy read-back: WebDataModel doesn't expose a way to reconstruct the exact
@@ -499,7 +641,7 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
 // Parses {"control": "...", "params": {...}} into outSlot. Does not touch anything but outSlot -
 // callers decide when/whether it's safe to apply. Returns false + a human-readable errorMessage on
 // any validation failure (unknown control, missing/malformed params) - never partially applies.
-bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &errorMessage) {
+bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &errorMessage, int screenIndex) {
     if (!obj["control"].is<const char *>()) {
         errorMessage = "missing or invalid 'control'";
         return false;
@@ -514,6 +656,46 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
 
     if (control == "asteroids") {
         outSlot.source = OrbItSource::ASTEROIDS;
+        return true;
+    }
+
+    if (control == "countdown") {
+        if (!params["action"].is<const char *>()) {
+            errorMessage = "control 'countdown' requires params.action ('set'|'pause'|'resume'|'stop'|'restart')";
+            return false;
+        }
+        String action = params["action"].as<String>();
+        // screenIndex < 0 means "no specific screen to validate state against" - only
+        // loadPersistedLayout()'s restore path would hit that, and it never reaches this branch (see
+        // its own countdown special-case), so this is effectively always a real screen index here.
+        CountdownRunState currentState = screenIndex >= 0 ? m_countdownRuntimes[screenIndex].state : CountdownRunState::IDLE;
+
+        if (action == "set") {
+            if (!params["durationSeconds"].is<int>() || params["durationSeconds"].as<int>() <= 0) {
+                errorMessage = "countdown action 'set' requires a positive integer params.durationSeconds";
+                return false;
+            }
+        } else if (action == "pause") {
+            if (currentState != CountdownRunState::RUNNING) {
+                errorMessage = "countdown action 'pause' requires the countdown to currently be running";
+                return false;
+            }
+        } else if (action == "resume") {
+            if (currentState != CountdownRunState::PAUSED) {
+                errorMessage = "countdown action 'resume' requires the countdown to currently be paused";
+                return false;
+            }
+        } else if (action == "restart") {
+            if (screenIndex >= 0 && m_slots[screenIndex].countdownConfig.durationSeconds == 0) {
+                errorMessage = "countdown action 'restart' requires a duration to already be set (use action 'set' first)";
+                return false;
+            }
+        } else if (action != "stop") {
+            errorMessage = "unknown countdown action '" + action + "'";
+            return false;
+        }
+
+        outSlot.source = OrbItSource::COUNTDOWN;
         return true;
     }
 
@@ -656,6 +838,15 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
             return false;
         }
         outSlot.tickerSymbol = params["symbol"].as<String>();
+        // Optional - defaults to OrbItSlot's own default (15 minutes, matching StockWidget).
+        // Silently clamped up to MIN_TICKER_POLL_INTERVAL_MS rather than rejected: a client asking
+        // for "as fast as possible" should just get the fastest safe rate, not an error to retry
+        // with a magic number it has to already know.
+        if (params["pollIntervalSeconds"].is<int>()) {
+            int requestedSeconds = params["pollIntervalSeconds"].as<int>();
+            unsigned long requestedMs = requestedSeconds > 0 ? (unsigned long) requestedSeconds * 1000UL : 0;
+            outSlot.tickerPollIntervalMs = max(requestedMs, MIN_TICKER_POLL_INTERVAL_MS);
+        }
         outSlot.source = OrbItSource::TICKER;
         return true;
     }
@@ -689,6 +880,7 @@ void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     slot.format24Hour = newConfig.format24Hour;
     slot.weatherElement = newConfig.weatherElement;
     slot.tickerSymbol = newConfig.tickerSymbol;
+    slot.tickerPollIntervalMs = newConfig.tickerPollIntervalMs;
     slot.analogColors = newConfig.analogColors;
     slot.gaugeConfig = newConfig.gaugeConfig;
     slot.sysMonitorConfig = newConfig.sysMonitorConfig;
@@ -721,8 +913,21 @@ void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
         m_tickerModels[index].setSymbol(slot.tickerSymbol);
         if (immediateFetch) {
             fetchTickerData(m_tickerModels[index]); // don't make the caller wait out the normal poll delay
-        } // else: WiFi isn't up yet (restoring at construction time) - the normal update() polling
-          // loop will fetch once it is.
+            slot.tickerDelayPrev = millis(); // ... and don't let the very next update() tick immediately refetch it again
+        } else {
+            // WiFi isn't up yet (restoring at construction time) - the normal update() polling loop
+            // will fetch once it is.
+            slot.tickerDelayPrev = 0;
+        }
+    }
+
+    if (slot.source == OrbItSource::COUNTDOWN) {
+        // Like CUSTOM above, this needs the raw params object directly (params.action isn't a typed
+        // OrbItSlot field - it's a one-shot command, not persisted state) rather than anything off
+        // newConfig. parseSlotConfig() has already validated action against this slot's current
+        // CountdownRuntime state by the time this runs.
+        JsonObject params = rawConfig["params"].is<JsonObject>() ? rawConfig["params"].as<JsonObject>() : JsonObject();
+        applyCountdownAction(index, params["action"].as<String>(), params);
     }
 
     if (slot.source == OrbItSource::CUSTOM) {
@@ -763,6 +968,15 @@ void OrbItWidget::loadPersistedLayout() {
             continue;
         }
 
+        // countdown is never persisted (persistLayout() skips it entirely - see its own comment) so a
+        // live layout will never actually contain one of these entries. This only guards against a
+        // leftover entry from an older firmware version that did persist countdown slots - drop it
+        // silently rather than restore anything from it; that screen just falls back to whatever its
+        // compile-time default (or another persisted entry) says instead.
+        if (entry["control"].is<const char *>() && String(entry["control"].as<const char *>()) == "countdown") {
+            continue;
+        }
+
         String errorMessage;
         OrbItSlot parsed;
         if (!parseSlotConfig(entry, parsed, errorMessage)) {
@@ -775,11 +989,18 @@ void OrbItWidget::loadPersistedLayout() {
 }
 
 // Saves the complete current layout as one JSON blob - simpler and (for 5 small slots) not
-// meaningfully more flash wear than tracking which individual slot(s) changed.
+// meaningfully more flash wear than tracking which individual slot(s) changed. countdown slots are
+// deliberately skipped entirely: a countdown is a one-off "timebox this task" tool, not a
+// permanent screen assignment the way every other control is - it shouldn't outlive a reboot even
+// as an idle placeholder. A skipped screen just isn't mentioned in the saved array, so on restore
+// it falls back to whatever its compile-time default (or another persisted entry) says instead.
 void OrbItWidget::persistLayout() {
     JsonDocument doc;
     JsonArray screens = doc["screens"].to<JsonArray>();
     for (int i = 0; i < NUM_SCREENS; i++) {
+        if (m_slots[i].source == OrbItSource::COUNTDOWN) {
+            continue;
+        }
         slotToJson(i, m_slots[i], screens.add<JsonObject>());
     }
     String json;
@@ -820,7 +1041,7 @@ void OrbItWidget::handlePostScreen(int index) {
 
     OrbItSlot parsed;
     String errorMessage;
-    if (!parseSlotConfig(doc.as<JsonObject>(), parsed, errorMessage)) {
+    if (!parseSlotConfig(doc.as<JsonObject>(), parsed, errorMessage, index)) {
         sendError(400, errorMessage);
         return;
     }
@@ -830,6 +1051,26 @@ void OrbItWidget::handlePostScreen(int index) {
 
     JsonDocument response;
     slotToJson(index, m_slots[index], response.to<JsonObject>());
+    sendJson(200, response);
+}
+
+// On-demand refetch, bypassing the slot's own pollIntervalSeconds/MIN_TICKER_POLL_INTERVAL_MS
+// floor entirely - that floor exists to keep *automatic* polling within twelvedata's free-tier
+// budget (see MIN_TICKER_POLL_INTERVAL_MS above), not to stop a person from deliberately asking for
+// the latest price right now. Blowing through the daily call budget via repeated manual refreshes
+// is on the caller, same as it would be for StockWidget's own middle-button refresh.
+void OrbItWidget::handleRefreshScreen(int index) {
+    OrbItSlot &slot = m_slots[index];
+    if (slot.source != OrbItSource::TICKER) {
+        sendError(400, "screen " + String(index) + " is not a 'ticker' slot - nothing to refresh");
+        return;
+    }
+
+    fetchTickerData(m_tickerModels[index]);
+    slot.tickerDelayPrev = millis(); // don't let the very next automatic poll immediately re-fetch too
+
+    JsonDocument response;
+    slotToJson(index, slot, response.to<JsonObject>());
     sendJson(200, response);
 }
 
@@ -876,7 +1117,7 @@ void OrbItWidget::handlePostScreens() {
 
         String errorMessage;
         OrbItSlot parsed;
-        if (!parseSlotConfig(entry, parsed, errorMessage)) {
+        if (!parseSlotConfig(entry, parsed, errorMessage, screenIndex)) {
             sendError(400, "screen " + String(screenIndex) + ": " + errorMessage);
             return;
         }
