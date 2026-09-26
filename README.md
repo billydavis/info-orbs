@@ -143,6 +143,23 @@ Simply adjust the 5 stocks in the config file to change the ones you'd like to t
 
 
 
+### 4. Web Page, Discovery & API
+Once the orbs are on your WiFi they can be found at `http://info-orbs-XX.local/` (XX = the last 2 characters of the setup access point name, e.g. `Info-Orbs_A4` → `info-orbs-a4.local`). The status screen shows the name after connecting. To pick your own name, set `#define MDNS_HOSTNAME "info-orbs"` in `config.h`.
+
+The page shows device info (IP, WiFi signal, uptime, memory), the active widgets and buttons that act like the physical ones. There is also a small REST API:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/system` | Device info as JSON (hostname, IP, MAC, SSID, RSSI, uptime, heap, build) |
+| `POST` | `/api/v1/buttons/{left\|ok\|right}` | Simulates a button press. Optional `?press=short\|medium\|long` (default `short`) |
+
+```bash
+curl http://info-orbs.local/api/v1/system
+curl -X POST "http://info-orbs.local/api/v1/buttons/ok?press=medium"
+```
+
+> **Security note:** the web page and API have **no authentication** and use plain HTTP. Anyone who can reach the orbs on your network can see their network details (IP, MAC, WiFi name) and press their buttons. That includes a web page open in a browser on the same network, which can submit a button press to the orbs without you noticing. The orbs are meant for a trusted home network: do not expose port 80 to the internet (e.g. via port forwarding). If you don't want the web page at all, add `#define DISABLE_WEB_SERVER` to `config.h`; `.local` name discovery keeps working.
+
 And thats it, goodluck & happy orbin (:
 
 

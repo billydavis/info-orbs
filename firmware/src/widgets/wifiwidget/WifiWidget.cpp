@@ -1,5 +1,6 @@
 #include "WifiWidget.h"
 #include "Utils.h"
+#include "WebService.h"
 #include <WiFi.h>
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 
@@ -22,6 +23,11 @@ void WifiWidget::setup() {
     m_manager.drawCentreString("Connecting", ScreenCenterX, ScreenCenterY - lineHeight, fontSize);
 
     WiFi.mode(WIFI_STA); // For WiFiManager explicitly set mode to station, ESP defaults to STA+AP
+
+    // Hostname for DHCP and mDNS (http://<hostname>.local) - must be set before connecting
+    const String &hostname = WebService::getInstance()->getHostname();
+    WiFi.setHostname(hostname.c_str());
+    wifimgr.setHostname(hostname);
 
 #if (defined WIFI_SSID && defined WIFI_PASS)
     m_hardCodedWiFi = true;
@@ -118,6 +124,9 @@ void WifiWidget::draw(bool force) {
         m_manager.clearScreen();
         m_manager.drawCentreString("IP Address", ScreenCenterX, ScreenCenterY - lineHeight, fontSize);
         m_manager.drawCentreString(m_ipaddress, ScreenCenterX, ScreenCenterY + lineHeight, fontSize);
+        m_manager.setFontColor(TFT_SKYBLUE);
+        m_manager.drawCentreString(WebService::getInstance()->getHostname() + ".local", ScreenCenterX, ScreenCenterY + lineHeight * 2, fontSize);
+        m_manager.setFontColor(TFT_WHITE);
         Serial.println();
         Serial.println("Connected to WiFi");
         m_isConnected = true;

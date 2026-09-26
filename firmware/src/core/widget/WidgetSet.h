@@ -14,6 +14,9 @@ public:
     void drawCurrent(bool force = false);
     void updateCurrent();
     Widget *getCurrent();
+    int8_t getCount() { return m_widgetCount; }
+    // Returns nullptr if index is out of range (valid: 0 .. getCount() - 1)
+    Widget *get(int8_t index) { return (index >= 0 && index < m_widgetCount) ? m_widgets[index] : nullptr; }
     void next();
     void prev();
     void buttonPressed(uint8_t buttonId, ButtonState state);

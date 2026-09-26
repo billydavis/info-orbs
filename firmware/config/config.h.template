@@ -55,6 +55,16 @@
 //#define WIFI_SSID "MyWiFiRouter" // Wifi router SSID name (use only 2.4 GHz network)
 //#define WIFI_PASS "WiFiPassword" // Wifi router password
 
+// Network name used for mDNS discovery - the device is reachable at http://<name>.local.
+// Default: info-orbs-XX, where XX = last 2 hex digits of the MAC (same suffix as the setup AP SSID).
+//#define MDNS_HOSTNAME "info-orbs"
+
+// Once connected, the device serves an info page and REST API at http://<name>.local/ (port 80).
+// There is NO authentication: anyone on your network can read device info and press the buttons
+// (see "Web Page, Discovery & API" in README.md). Only use it on a trusted network.
+// Uncomment to turn the web server off (mDNS stays on, so <name>.local still resolves).
+//#define DISABLE_WEB_SERVER
+
 // TRUETYPE FONT CONFIGURATION
 //#define DEFAULT_FONT ROBOTO_REGULAR
 
