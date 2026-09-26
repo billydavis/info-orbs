@@ -53,7 +53,8 @@ public:
 
     // Registers a page for a widget at path (e.g. "/orbit/"), linked from the widget list on the
     // home page. renderBody returns the page's inner HTML; the page title, styling and a link
-    // back home are added by sendPage(). Can be called before begin().
+    // back home are added by sendPage(). A path ending in "/" is also reachable without it (redirect).
+    // Can be called before begin().
     void addPage(Widget *widget, const String &path, std::function<String()> renderBody);
 
     // Sends a complete HTML page with the shared styling. Use for any custom HTML response.

@@ -97,6 +97,14 @@ void WebService::loop() {
 void WebService::addPage(Widget *widget, const String &path, std::function<String()> renderBody) {
     m_pages.push_back({widget, path});
     m_server.on(path, HTTP_GET, [this, widget, renderBody]() { sendPage(widget->getName(), renderBody()); });
+
+    // WebServer matches paths exactly, so also accept "/orbit" for "/orbit/" by redirecting to it
+    if (path.length() > 1 && path.endsWith("/")) {
+        m_server.on(path.substring(0, path.length() - 1), HTTP_GET, [this, path]() {
+            m_server.sendHeader("Location", path);
+            m_server.send(301);
+        });
+    }
 }
 
 const WebService::WidgetPage *WebService::findPage(Widget *widget) {
