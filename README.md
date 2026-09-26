@@ -146,7 +146,7 @@ Simply adjust the 5 stocks in the config file to change the ones you'd like to t
 ### 4. Web Page, Discovery & API
 Once the orbs are on your WiFi they can be found at `http://info-orbs-XX.local/` (XX = the last 2 characters of the setup access point name, e.g. `Info-Orbs_A4` → `info-orbs-a4.local`). The status screen shows the name after connecting. To pick your own name, set `#define MDNS_HOSTNAME "info-orbs"` in `config.h`.
 
-The page shows device info (IP, WiFi signal, uptime, memory), the active widgets and buttons that act like the physical ones. There is also a small REST API:
+The page shows device info (IP, WiFi signal, uptime, memory), the active widgets and buttons that act like the physical ones. Widgets that have their own web page are linked from the widget list. There is also a small REST API:
 
 | Method | Path | Description |
 |---|---|---|

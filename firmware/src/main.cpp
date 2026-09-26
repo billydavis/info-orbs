@@ -48,9 +48,7 @@ bool isConnected{true};
 ScreenManager *sm;
 WidgetSet *widgetSet;
 
-#ifndef DISABLE_WEB_SERVER
-void setupWebRoutes();
-#endif
+void handleButton(uint8_t buttonId, ButtonState state);
 
 // This function should probably be moved somewhere else
 bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
@@ -145,7 +143,8 @@ void setup() {
 #endif
 
 #ifndef DISABLE_WEB_SERVER
-    setupWebRoutes();
+    WebService::getInstance()->setWidgetSet(widgetSet);
+    WebService::getInstance()->setButtonHandler(handleButton);
 #endif
 
     m_widgetCycleDelayPrev = millis();
@@ -196,73 +195,6 @@ void checkButtons() {
         }
     }
 }
-
-#ifndef DISABLE_WEB_SERVER
-void setupWebRoutes() {
-    WebService *web = WebService::getInstance();
-
-    // POST /api/v1/buttons/{left|ok|right}?press={short|medium|long} - acts like a physical button press.
-    // With ?redirect=1 the response is a redirect back to "/" (used by the info page's buttons).
-    const struct {
-        const char *name;
-        uint8_t id;
-    } buttons[] = {{"left", BUTTON_LEFT}, {"ok", BUTTON_OK}, {"right", BUTTON_RIGHT}};
-    for (const auto &button : buttons) {
-        String name = button.name;
-        uint8_t id = button.id;
-        web->server().on("/api/v1/buttons/" + name, HTTP_POST, [web, name, id]() {
-            WebServer &server = web->server();
-            String press = server.hasArg("press") ? server.arg("press") : "short";
-            ButtonState state;
-            if (press == "short") {
-                state = BTN_SHORT;
-            } else if (press == "medium") {
-                state = BTN_MEDIUM;
-            } else if (press == "long") {
-                state = BTN_LONG;
-            } else {
-                server.send(400, "application/json", "{\"error\":\"press must be short, medium or long\"}");
-                return;
-            }
-            handleButton(id, state);
-            if (server.hasArg("redirect")) {
-                server.sendHeader("Location", "/");
-                server.send(303);
-                return;
-            }
-            JsonDocument doc;
-            doc["button"] = name;
-            doc["press"] = press;
-            doc["widget"] = widgetSet->getCurrent()->getName();
-            String body;
-            serializeJson(doc, body);
-            server.send(200, "application/json", body);
-        });
-    }
-
-    web->addStatusSection([](String &html) {
-        html += F("<h2>Widgets</h2><table>");
-        Widget *current = widgetSet->getCurrent();
-        for (int8_t i = 0; i < widgetSet->getCount(); i++) {
-            Widget *widget = widgetSet->get(i);
-            if (widget == nullptr) {
-                continue;
-            }
-            html += "<tr><td>" + WebService::htmlEscape(widget->getName()) + (widget == current ? " (showing)" : "") + "</td></tr>";
-        }
-        html += F("</table><h2>Buttons</h2><p>");
-        const char *labels[][2] = {{"left", "&larr; Left"}, {"ok", "OK"}, {"right", "Right &rarr;"}};
-        for (const auto &label : labels) {
-            html += "<form method=post action='/api/v1/buttons/";
-            html += label[0];
-            html += "?redirect=1' style='display:inline'><button>";
-            html += label[1];
-            html += "</button></form> ";
-        }
-        html += F("</p><p>Short press. For medium/long: <code>POST /api/v1/buttons/{left|ok|right}?press=medium</code></p>");
-    });
-}
-#endif
 
 void loop() {
     if (wifiWidget->isConnected() == false) {

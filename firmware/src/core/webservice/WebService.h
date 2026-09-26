@@ -1,6 +1,9 @@
 #ifndef WEBSERVICE_H
 #define WEBSERVICE_H
 
+#include "Button.h"
+#include "Widget.h"
+#include "WidgetSet.h"
 #include "config_helper.h"
 #include <Arduino.h>
 #include <functional>
@@ -12,11 +15,13 @@
 #endif
 
 // Owns the device's network presence: hostname, mDNS (http://<hostname>.local) and, unless
-// DISABLE_WEB_SERVER is defined, an HTTP server on port 80 with a device info page at "/".
+// DISABLE_WEB_SERVER is defined, an HTTP server on port 80.
 //
-// Widgets that want HTTP endpoints register them in setup() via server().on(...) and can add a
-// block to the info page via addStatusSection(). Requests are handled synchronously from loop(),
-// so handlers run on the main task and may touch widget state directly.
+// The home page at "/" belongs to core: device info, the widget list and virtual buttons. Widgets
+// don't add to it - a widget that wants a web UI registers its own page with addPage(), and the
+// home page links to it from the widget list. Widgets can also register API routes directly via
+// server().on(...). Requests are handled synchronously from loop(), so handlers run on the main
+// task and may touch widget state directly.
 //
 // Trust boundary: the local network. There is no authentication and no TLS, so every route is
 // reachable by any LAN client, including cross-site form POSTs from a browser on the LAN. Keep
@@ -39,8 +44,20 @@ public:
 #ifndef DISABLE_WEB_SERVER
     WebServer &server() { return m_server; }
 
-    // Appends HTML (typically an <h2> and a <table>) to the info page at "/"
-    void addStatusSection(std::function<void(String &html)> section);
+    // Widgets listed on the home page
+    void setWidgetSet(WidgetSet *widgetSet) { m_widgetSet = widgetSet; }
+
+    // Enables POST /api/v1/buttons/{left|ok|right}; the handler performs the press as if it came
+    // from the physical button
+    void setButtonHandler(std::function<void(uint8_t buttonId, ButtonState state)> handler) { m_buttonHandler = handler; }
+
+    // Registers a page for a widget at path (e.g. "/orbit/"), linked from the widget list on the
+    // home page. renderBody returns the page's inner HTML; the page title, styling and a link
+    // back home are added by sendPage(). Can be called before begin().
+    void addPage(Widget *widget, const String &path, std::function<String()> renderBody);
+
+    // Sends a complete HTML page with the shared styling. Use for any custom HTML response.
+    void sendPage(const String &title, const String &body, bool homeLink = true);
 
     // Adds a TXT record to the _http._tcp mDNS service (applied at begin() if not yet started)
     void addServiceTxt(const String &key, const String &value);
@@ -63,12 +80,21 @@ private:
     unsigned long m_lastMdnsAttempt{0};
 
 #ifndef DISABLE_WEB_SERVER
+    struct WidgetPage {
+        Widget *widget;
+        String path;
+    };
+
     void fillSystemInfo(JsonDocument &doc);
     void handleRoot();
     void handleSystem();
+    void handleButton(const String &name, uint8_t buttonId);
+    const WidgetPage *findPage(Widget *widget);
 
     WebServer m_server{80};
-    std::vector<std::function<void(String &html)>> m_statusSections;
+    WidgetSet *m_widgetSet{nullptr};
+    std::function<void(uint8_t, ButtonState)> m_buttonHandler;
+    std::vector<WidgetPage> m_pages;
     std::vector<std::pair<String, String>> m_serviceTxt;
 #endif
 };
