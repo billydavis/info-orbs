@@ -50,9 +50,6 @@ bool isConnected{true};
 
 ScreenManager *sm;
 WidgetSet *widgetSet;
-#ifdef ORBIT_WIDGET_ENABLED
-OrbItWidget *orbItWidget{nullptr};
-#endif
 
 void handleButton(uint8_t buttonId, ButtonState state);
 
@@ -148,8 +145,7 @@ void setup() {
     widgetSet->add(new MQTTWidget(*sm, MQTT_WIDGET_HOST, MQTT_WIDGET_PORT));
 #endif
 #ifdef ORBIT_WIDGET_ENABLED
-    orbItWidget = new OrbItWidget(*sm);
-    widgetSet->add(orbItWidget);
+    widgetSet->add(new OrbItWidget(*sm));
 #endif
 
 #ifndef DISABLE_WEB_SERVER
@@ -223,12 +219,6 @@ void loop() {
         WebService::getInstance()->loop();
 
         checkButtons();
-
-#ifdef ORBIT_WIDGET_ENABLED
-        // Serviced before updateCurrent()/drawCurrent() so a config change applied this tick is
-        // picked up by this same tick's draw pass if OrbIt happens to be the current widget.
-        orbItWidget->serviceApi();
-#endif
 
         widgetSet->updateCurrent();
         widgetSet->updateBrightnessByTime(globalTime->getHour24());

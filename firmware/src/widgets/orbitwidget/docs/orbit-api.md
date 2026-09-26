@@ -12,6 +12,8 @@ Status: **implemented and verified on real hardware** — every control (`time`,
 
 Versioned from day one (`v1`) so the schema can evolve later without breaking whatever is talking to a device in the field.
 
+The routes are registered on the core web server (`firmware/src/core/webservice/WebService`), so the full URL is e.g. `http://info-orbs-XX.local/orbit/api/v1/screens` — see "Web Page, Discovery & API" in the top-level `README.md` for the hostname and the device's own endpoints. OrbIt has its own page at `/orbit/` (linked from the widget list on the home page at `/`) showing each screen's control, linked to its config, and the `_http._tcp` mDNS service carries a TXT record `orbit=/orbit/api/v1/screens`. The OrbIt widget requires the web server, so it cannot be combined with `DISABLE_WEB_SERVER`.
+
 ## Screens are addressed by index
 
 Screens are numbered `0`-`4`, matching `ScreenManager`'s existing `selectScreen(int)` numbering (`NUM_SCREENS = 5`, `ScreenManager.h:11`). No aliasing/naming layer on top — orbit-api uses the same index space the firmware already uses internally.

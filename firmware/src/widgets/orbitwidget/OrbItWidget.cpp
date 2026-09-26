@@ -2,6 +2,10 @@
 
 #include "config_helper.h"
 
+#ifdef DISABLE_WEB_SERVER
+    #error "The OrbIt widget is configured through orbit-api, so it needs the web server - remove DISABLE_WEB_SERVER or ORBIT_WIDGET_ENABLED from config.h"
+#endif
+
 namespace {
 const char *API_BASE = "/orbit/api/v1/screens";
 
@@ -80,7 +84,7 @@ String countdownStateToString(CountdownRunState state) {
 }
 } // namespace
 
-OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_sysMonitorControl(manager), m_asteroidsControl(manager), m_countdownControl(manager), m_weatherControl(manager), m_tickerControl(manager) {
+OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_sysMonitorControl(manager), m_asteroidsControl(manager), m_countdownControl(manager), m_weatherControl(manager), m_tickerControl(manager), m_server(WebService::getInstance()->server()) {
     // Compile-time starting layout - orbit-api can reassign any of this at runtime. Mixes pieces of
     // Clock/Weather/Stock across screens simultaneously, which is the whole point of this widget.
     m_slots[0].source = OrbItSource::TIME;
@@ -104,6 +108,9 @@ OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeContro
     // Overrides any of the above with whatever was last saved via orbit-api, if anything - NVS
     // access works fully offline, so this is safe to do here before WiFi is even up.
     loadPersistedLayout();
+
+    // Routes can be registered before the core web server is started (once WiFi is up)
+    setupApiRoutes();
 }
 
 void OrbItWidget::setup() {
@@ -556,16 +563,6 @@ String OrbItWidget::getName() {
 
 // ===================== orbit-api =====================
 
-void OrbItWidget::serviceApi() {
-    if (!m_serverStarted) {
-        setupApiRoutes();
-        m_server.begin();
-        m_serverStarted = true;
-        Serial.println("OrbIt: orbit-api listening on port 80");
-    }
-    m_server.handleClient();
-}
-
 void OrbItWidget::setupApiRoutes() {
     m_server.on(API_BASE, HTTP_GET, [this]() { handleGetScreens(); });
     m_server.on(API_BASE, HTTP_POST, [this]() { handlePostScreens(); });
@@ -578,9 +575,25 @@ void OrbItWidget::setupApiRoutes() {
     }
 
     // Only routes for screens 0..NUM_SCREENS-1 are registered above, so an out-of-range index (or
-    // any other unmatched path) falls through to here rather than WebServer's default plain-text
-    // 404 - keeps every orbit-api error response in the same {"error": "..."} JSON shape.
-    m_server.onNotFound([this]() { sendError(404, "not found: " + m_server.uri()); });
+    // any other unmatched path) falls through to the core server's 404, which uses the same
+    // {"error": "..."} JSON shape as every other orbit-api error response.
+
+    WebService *web = WebService::getInstance();
+    web->addServiceTxt("orbit", API_BASE);
+    // OrbIt's own page, linked from the widget list on the home page
+    web->addPage(this, "/orbit/", [this]() {
+        String html;
+        html += F("<h2>Screens</h2><table>");
+        for (int i = 0; i < NUM_SCREENS; i++) {
+            html += "<tr><th>" + String(i) + "</th><td><a href='" + String(API_BASE) + "/" + String(i) + "'>" + sourceToString(m_slots[i].source) + "</a></td></tr>";
+        }
+        html += F("</table><h2>API</h2><p><a href='");
+        html += API_BASE;
+        html += F("'><code>GET ");
+        html += API_BASE;
+        html += F("</code></a> - all screen configs as JSON</p>");
+        return html;
+    });
 }
 
 void OrbItWidget::sendJson(int code, const JsonDocument &doc) {

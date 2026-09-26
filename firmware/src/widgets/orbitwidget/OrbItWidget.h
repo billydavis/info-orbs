@@ -18,7 +18,7 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
-#include <WebServer.h>
+#include "WebService.h"
 
 // OrbIt treats each of the 5 physical screens as an independently assignable "slot" instead of
 // one widget owning all 5 screens the way ClockWidget/WeatherWidget/StockWidget do. Slot
@@ -98,15 +98,6 @@ public:
     void draw(bool force = false) override;
     void buttonPressed(uint8_t buttonId, ButtonState state) override;
     String getName() override;
-
-    // Starts the orbit-api server on first call and services pending requests. Must only be called
-    // once WiFi is connected (main.cpp already gates this the same way it gates widget updates).
-    // Intentionally called every loop iteration regardless of which widget is currently displayed,
-    // BEFORE WidgetSet::updateCurrent()/drawCurrent() - so a config change applied this tick is
-    // picked up by the very same tick's draw pass if OrbIt happens to be current, with no need for
-    // this widget to know whether it's "the current one" (WidgetSet already only calls this
-    // widget's own draw() while it is).
-    void serviceApi();
 
 private:
     bool anySlotUses(OrbItSource source);
@@ -216,8 +207,10 @@ private:
     String m_countdownPreviousConfig[NUM_SCREENS];
     bool m_countdownRestorePending[NUM_SCREENS] = {false};
 
-    WebServer m_server{80};
-    bool m_serverStarted = false;
+    // orbit-api routes live on the core web server (see WebService), which main.cpp services every
+    // loop iteration BEFORE WidgetSet::updateCurrent()/drawCurrent() - so a config change applied
+    // this tick is picked up by the very same tick's draw pass if OrbIt happens to be current.
+    WebServer &m_server;
 
     Preferences m_preferences;
 };
