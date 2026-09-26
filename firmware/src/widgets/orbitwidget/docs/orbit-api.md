@@ -12,6 +12,23 @@ Status: **implemented and verified on real hardware** — every control (`time`,
 
 Versioned from day one (`v1`) so the schema can evolve later without breaking whatever is talking to a device in the field.
 
+## Discovery
+
+The device answers mDNS as `info-orbs-XX.local` (`XX` = last 2 hex digits of the MAC, shown on the status screen after WiFi connects; override with `MDNS_HOSTNAME` in `config.h`), so the API is reachable without knowing the IP:
+
+```
+curl http://info-orbs-XX.local/orbit/api/v1/screens
+```
+
+Browsing to `http://info-orbs-XX.local/` shows a small HTML landing page with device info (IP, MAC, WiFi signal, uptime, free heap, build date) and the control on each screen, linking to its JSON.
+
+It also advertises itself via DNS-SD as an `_http._tcp` service on port 80 with TXT records `api=orbit` and `path=/orbit/api/v1/screens`:
+
+```
+dns-sd -B _http._tcp          # Windows (Bonjour) / macOS
+avahi-browse -r _http._tcp    # Linux
+```
+
 ## Screens are addressed by index
 
 Screens are numbered `0`-`4`, matching `ScreenManager`'s existing `selectScreen(int)` numbering (`NUM_SCREENS = 5`, `ScreenManager.h:11`). No aliasing/naming layer on top — orbit-api uses the same index space the firmware already uses internally.

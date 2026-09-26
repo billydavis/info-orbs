@@ -66,6 +66,9 @@
 // changing the SSID and password.
 //#define WIFI_SSID "MyWiFiRouter" // Wifi router SSID name (use only 2.4 GHz network)
 //#define WIFI_PASS "WiFiPassword" // Wifi router password
+// Network name used for mDNS discovery - the device is reachable at http://<name>.local.
+// Default: info-orbs-XX, where XX = last 2 hex digits of the MAC (same suffix as the setup AP SSID).
+//#define MDNS_HOSTNAME "info-orbs"
 
 // TRUETYPE FONT CONFIGURATION
 //#define DEFAULT_FONT ROBOTO_REGULAR

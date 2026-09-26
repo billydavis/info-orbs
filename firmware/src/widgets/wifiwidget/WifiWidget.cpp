@@ -1,5 +1,6 @@
 #include "WifiWidget.h"
 #include "Utils.h"
+#include <ESPmDNS.h>
 #include <WiFi.h>
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 
@@ -22,6 +23,16 @@ void WifiWidget::setup() {
     m_manager.drawCentreString("Connecting", ScreenCenterX, ScreenCenterY - lineHeight, fontSize);
 
     WiFi.mode(WIFI_STA); // For WiFiManager explicitly set mode to station, ESP defaults to STA+AP
+
+    // Hostname for DHCP and mDNS (http://<hostname>.local) - must be set before connecting
+#ifdef MDNS_HOSTNAME
+    m_hostname = MDNS_HOSTNAME;
+#else
+    m_hostname = "info-orbs-" + WiFi.macAddress().substring(15);
+    m_hostname.toLowerCase();
+#endif
+    WiFi.setHostname(m_hostname.c_str());
+    wifimgr.setHostname(m_hostname);
 
 #if (defined WIFI_SSID && defined WIFI_PASS)
     m_hardCodedWiFi = true;
@@ -88,6 +99,14 @@ void WifiWidget::update(bool force) {
         m_ipaddress = WiFi.localIP().toString();
         Serial.print("IP address: ");
         Serial.println(m_ipaddress);
+        if (!m_mdnsStarted) {
+            m_mdnsStarted = true;
+            if (MDNS.begin(m_hostname.c_str())) {
+                Serial.println("mDNS responder started: " + m_hostname + ".local");
+            } else {
+                Serial.println("mDNS responder failed to start");
+            }
+        }
     } else {
         m_connectionTimer += 500;
         m_dotsString += " . ";
@@ -118,6 +137,9 @@ void WifiWidget::draw(bool force) {
         m_manager.clearScreen();
         m_manager.drawCentreString("IP Address", ScreenCenterX, ScreenCenterY - lineHeight, fontSize);
         m_manager.drawCentreString(m_ipaddress, ScreenCenterX, ScreenCenterY + lineHeight, fontSize);
+        m_manager.setFontColor(TFT_SKYBLUE);
+        m_manager.drawCentreString(m_hostname + ".local", ScreenCenterX, ScreenCenterY + lineHeight * 2, fontSize);
+        m_manager.setFontColor(TFT_WHITE);
         Serial.println();
         Serial.println("Connected to WiFi");
         m_isConnected = true;

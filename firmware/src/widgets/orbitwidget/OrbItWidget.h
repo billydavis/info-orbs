@@ -138,6 +138,7 @@ private:
 
     // orbit-api
     void setupApiRoutes();
+    void handleRoot();
     void handleGetScreens();
     void handleGetScreen(int index);
     void handlePostScreens();

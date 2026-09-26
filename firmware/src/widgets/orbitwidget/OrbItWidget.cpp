@@ -1,6 +1,8 @@
 #include "OrbItWidget.h"
 
 #include "config_helper.h"
+#include <ESPmDNS.h>
+#include <WiFi.h>
 
 namespace {
 const char *API_BASE = "/orbit/api/v1/screens";
@@ -561,12 +563,17 @@ void OrbItWidget::serviceApi() {
         setupApiRoutes();
         m_server.begin();
         m_serverStarted = true;
+        // Advertise the API via DNS-SD so clients can find it without knowing the IP
+        MDNS.addService("http", "tcp", 80);
+        MDNS.addServiceTxt("http", "tcp", "api", "orbit");
+        MDNS.addServiceTxt("http", "tcp", "path", API_BASE);
         Serial.println("OrbIt: orbit-api listening on port 80");
     }
     m_server.handleClient();
 }
 
 void OrbItWidget::setupApiRoutes() {
+    m_server.on("/", HTTP_GET, [this]() { handleRoot(); });
     m_server.on(API_BASE, HTTP_GET, [this]() { handleGetScreens(); });
     m_server.on(API_BASE, HTTP_POST, [this]() { handlePostScreens(); });
 
@@ -1067,6 +1074,77 @@ void OrbItWidget::persistLayout() {
     m_preferences.begin("orbit", false); // read-write
     m_preferences.putString("layout", json);
     m_preferences.end();
+}
+
+// Escapes the few characters that matter when dropping a user-controlled string (e.g. the SSID)
+// into the landing page's HTML.
+static String htmlEscape(const String &in) {
+    String out;
+    out.reserve(in.length());
+    for (char c : in) {
+        switch (c) {
+        case '&':
+            out += "&amp;";
+            break;
+        case '<':
+            out += "&lt;";
+            break;
+        case '>':
+            out += "&gt;";
+            break;
+        case '"':
+            out += "&quot;";
+            break;
+        default:
+            out += c;
+        }
+    }
+    return out;
+}
+
+// Human-facing landing page at "/" - device info plus a summary of each screen, so browsing to
+// http://<hostname>.local shows something useful instead of the JSON 404.
+void OrbItWidget::handleRoot() {
+    unsigned long secs = millis() / 1000;
+    char uptime[32];
+    snprintf(uptime, sizeof(uptime), "%lud %02luh %02lum %02lus", secs / 86400, (secs / 3600) % 24, (secs / 60) % 60, secs % 60);
+
+    String host = WiFi.getHostname();
+    String html;
+    html.reserve(2048);
+    html += F("<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+              "<title>Info-Orbs</title><style>"
+              ":root{color-scheme:light dark}body{font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem}"
+              "table{border-collapse:collapse;width:100%;margin-bottom:1.5rem}th,td{text-align:left;padding:.35rem .5rem;border-bottom:1px solid #8884}"
+              "th{width:40%;font-weight:600}code{font-size:.95em}"
+              "</style></head><body><h1>Info-Orbs</h1><h2>Device</h2><table>");
+
+    auto row = [&html](const char *label, const String &value) {
+        html += "<tr><th>";
+        html += label;
+        html += "</th><td>";
+        html += value;
+        html += "</td></tr>";
+    };
+    row("Hostname", "<code>" + htmlEscape(host) + ".local</code>");
+    row("IP address", WiFi.localIP().toString());
+    row("MAC address", WiFi.macAddress());
+    row("WiFi", htmlEscape(WiFi.SSID()) + " (" + String(WiFi.RSSI()) + " dBm)");
+    row("Uptime", uptime);
+    row("Free heap", String(ESP.getFreeHeap() / 1024) + " KB");
+    row("Firmware built", String(__DATE__) + " " + __TIME__);
+
+    html += F("</table><h2>Screens</h2><table>");
+    for (int i = 0; i < NUM_SCREENS; i++) {
+        row(String(i).c_str(), "<a href='" + String(API_BASE) + "/" + String(i) + "'>" + sourceToString(m_slots[i].source) + "</a>");
+    }
+    html += F("</table><h2>API</h2><p><a href='");
+    html += API_BASE;
+    html += F("'><code>GET ");
+    html += API_BASE;
+    html += F("</code></a> - all screen configs as JSON</p></body></html>");
+
+    m_server.send(200, "text/html", html);
 }
 
 void OrbItWidget::handleGetScreens() {

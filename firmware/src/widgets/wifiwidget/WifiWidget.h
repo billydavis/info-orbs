@@ -15,6 +15,7 @@ public:
     String getName() override;
 
     bool isConnected() { return m_isConnected; }
+    const String &getHostname() { return m_hostname; }
 
 private:
     void connectionTimedOut();
@@ -25,11 +26,13 @@ private:
     bool m_hasDisplayedError{false};
     bool m_hasDisplayedSuccess{false};
     bool m_configPortalRunning{false};
+    bool m_mdnsStarted{false};
 
     String m_connectionString{""};
     String m_dotsString{""};
     String m_ipaddress{""};
     String m_apssid{""};
+    String m_hostname{""};
     int m_connectionTimer{0};
     const int m_connectionTimeout{10000};
 };
