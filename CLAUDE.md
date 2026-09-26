@@ -33,7 +33,7 @@ Linting: MegaLinter runs `CPP_CLANG_FORMAT` (config in `.clang-format`: LLVM-bas
 - `firmware/src/core/screenmanager/` — `ScreenManager` wraps `TFT_eSPI` + `OpenFontRender` (TTF text) across the 5 physical screens (selected via per-screen chip-select pins). All drawing (shapes, text, JPEG/pushImage) goes through this class; nothing in widget code touches `TFT_eSPI` directly.
 - `firmware/src/core/widget/` — the widget framework:
   - `Widget` is the abstract base every widget implements (`setup()`, `update()`, `draw()`, `buttonPressed()`, `getName()`).
-  - `WidgetSet` owns an array of `Widget*` (capacity `MAX_WIDGETS`, currently 8), tracks which is current, and dispatches button presses / draw / update / cycling to it. Widgets are registered in `main.cpp::setup()`, conditionally via `#ifdef` based on which features are configured (e.g. `#ifdef STOCK_TICKER_LIST`).
+  - `WidgetSet` owns an array of `Widget*` (capacity `MAX_WIDGETS` in `WidgetSet.h`, currently 5 — `add()` beyond that only logs "MAX WIDGETS UNABLE TO ADD" and drops the widget, so enabling many optional widgets can silently lose the last ones registered), tracks which is current, and dispatches button presses / draw / update / cycling to it. Widgets are registered in `main.cpp::setup()`, conditionally via `#ifdef` based on which features are configured (e.g. `#ifdef STOCK_TICKER_LIST`).
 - `firmware/src/core/button/` — `Button` handles debouncing/short/medium/long press detection; ISR handlers in `main.cpp` call into it from `attachInterrupt`.
 - `firmware/src/core/globaltime/` — `GlobalTime` singleton (NTP-backed) used across widgets for current time/timezone.
 - `firmware/src/core/utils/` — shared helpers (e.g. RGB565 dimming used for screen brightness/dimming effects).
