@@ -73,61 +73,72 @@ String Utils::getWrappedLine(String str, int limit, int lineNum, int maxLines) {
 }
 
 int32_t Utils::stringToColor(String color) {
-    color.toLowerCase();
-    color.replace(" ", "");
-    if (color == "black") {
-        return TFT_BLACK;
-    } else if (color == "navy") {
-        return TFT_NAVY;
-    } else if (color == "darkgreen") {
-        return TFT_DARKGREEN;
-    } else if (color == "darkcyan") {
-        return TFT_DARKCYAN;
-    } else if (color == "maroon") {
-        return TFT_MAROON;
-    } else if (color == "purple") {
-        return TFT_PURPLE;
-    } else if (color == "olive") {
-        return TFT_OLIVE;
-    } else if (color == "lightgrey" || color == "grey") {
-        return TFT_LIGHTGREY;
-    } else if (color == "darkgrey") {
-        return TFT_DARKGREY;
-    } else if (color == "blue") {
-        return TFT_BLUE;
-    } else if (color == "green") {
-        return TFT_GREEN;
-    } else if (color == "cyan") {
-        return TFT_CYAN;
-    } else if (color == "red") {
-        return TFT_RED;
-    } else if (color == "magenta") {
-        return TFT_MAGENTA;
-    } else if (color == "yellow") {
-        return TFT_YELLOW;
-    } else if (color == "white") {
-        return TFT_WHITE;
-    } else if (color == "orange") {
-        return TFT_ORANGE;
-    } else if (color == "greenyellow") {
-        return TFT_GREENYELLOW;
-    } else if (color == "pink") {
-        return TFT_PINK;
-    } else if (color == "brown") {
-        return TFT_BROWN;
-    } else if (color == "gold") {
-        return TFT_GOLD;
-    } else if (color == "silver") {
-        return TFT_SILVER;
-    } else if (color == "skyblue") {
-        return TFT_SKYBLUE;
-    } else if (color == "vilolet") {
-        return TFT_VIOLET;
-    } else {
+    uint16_t result;
+    if (!tryStringToColor(color, result)) {
         Serial.print("Invalid color: ");
         Serial.println(color);
         return TFT_BLACK;
     }
+    return result;
+}
+
+// Same names as stringToColor(), but reports an unknown one instead of falling back to black - for
+// callers that need to reject bad input rather than draw something the sender didn't ask for.
+bool Utils::tryStringToColor(String color, uint16_t &out) {
+    color.toLowerCase();
+    color.replace(" ", "");
+    if (color == "black") {
+        out = TFT_BLACK;
+    } else if (color == "navy") {
+        out = TFT_NAVY;
+    } else if (color == "darkgreen") {
+        out = TFT_DARKGREEN;
+    } else if (color == "darkcyan") {
+        out = TFT_DARKCYAN;
+    } else if (color == "maroon") {
+        out = TFT_MAROON;
+    } else if (color == "purple") {
+        out = TFT_PURPLE;
+    } else if (color == "olive") {
+        out = TFT_OLIVE;
+    } else if (color == "lightgrey" || color == "grey") {
+        out = TFT_LIGHTGREY;
+    } else if (color == "darkgrey") {
+        out = TFT_DARKGREY;
+    } else if (color == "blue") {
+        out = TFT_BLUE;
+    } else if (color == "green") {
+        out = TFT_GREEN;
+    } else if (color == "cyan") {
+        out = TFT_CYAN;
+    } else if (color == "red") {
+        out = TFT_RED;
+    } else if (color == "magenta") {
+        out = TFT_MAGENTA;
+    } else if (color == "yellow") {
+        out = TFT_YELLOW;
+    } else if (color == "white") {
+        out = TFT_WHITE;
+    } else if (color == "orange") {
+        out = TFT_ORANGE;
+    } else if (color == "greenyellow") {
+        out = TFT_GREENYELLOW;
+    } else if (color == "pink") {
+        out = TFT_PINK;
+    } else if (color == "brown") {
+        out = TFT_BROWN;
+    } else if (color == "gold") {
+        out = TFT_GOLD;
+    } else if (color == "silver") {
+        out = TFT_SILVER;
+    } else if (color == "skyblue") {
+        out = TFT_SKYBLUE;
+    } else if (color == "vilolet") {
+        out = TFT_VIOLET;
+    } else {
+        return false;
+    }
+    return true;
 }
 
 String Utils::formatFloat(float value, int8_t digits) {

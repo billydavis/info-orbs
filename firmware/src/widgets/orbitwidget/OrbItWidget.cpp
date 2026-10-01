@@ -46,6 +46,37 @@ bool mountDrawingStore() {
 // on you to keep the combined polling reasonable.
 const unsigned long MIN_TICKER_POLL_INTERVAL_MS = 300000;
 
+// Reads one optional color param. The wire format is the RGB565 integer slotToJson() reports, so
+// whatever a GET returns can be sent straight back - which is also what this widget does to itself
+// when it restores the saved layout at boot or a countdown's previous control. A color name is
+// accepted too, as a convenience for hand-written requests. An omitted (or null, or "") param
+// leaves `out` at whatever default the caller initialized it to; anything else is an error rather
+// than a silent fallback, so a typo can't quietly turn a color black.
+bool parseColorParam(JsonVariantConst value, const char *name, uint32_t &out, String &errorMessage) {
+    if (value.isNull()) {
+        return true;
+    }
+    if (value.is<uint16_t>()) {
+        out = value.as<uint16_t>();
+        return true;
+    }
+    if (value.is<const char *>()) {
+        // Older clients sent "" for a color they had nothing to say about - same as omitting it.
+        if (value.as<String>().length() == 0) {
+            return true;
+        }
+        uint16_t named;
+        if (Utils::tryStringToColor(value.as<String>(), named)) {
+            out = named;
+            return true;
+        }
+        errorMessage = "unknown color name '" + value.as<String>() + "' for params." + name;
+        return false;
+    }
+    errorMessage = String("params.") + name + " must be an RGB565 integer (0-65535) or a color name";
+    return false;
+}
+
 String sourceToString(OrbItSource source) {
     switch (source) {
     case OrbItSource::TIME:
@@ -275,8 +306,11 @@ void OrbItWidget::applyCountdownAction(int index, const String &action, JsonObje
         slot.countdownConfig.durationSeconds = (unsigned long) params["durationSeconds"].as<int>();
         slot.countdownConfig.label = params["label"].is<const char *>() ? params["label"].as<String>() : "";
         // Full replace, like every other control's params - a 'set' without a color falls back to
-        // the default rather than keeping whatever was configured before.
-        slot.countdownConfig.color = params["color"].is<const char *>() ? Utils::stringToColor(params["color"].as<String>()) : TFT_CYAN;
+        // the default rather than keeping whatever was configured before. parseSlotConfig() has
+        // already rejected an invalid color, so the error message here is never used.
+        slot.countdownConfig.color = TFT_CYAN;
+        String ignoredError;
+        parseColorParam(params["color"], "color", slot.countdownConfig.color, ignoredError);
 
         runtime.totalMs = slot.countdownConfig.durationSeconds * 1000UL;
         runtime.runStartedAtMs = now;
@@ -652,8 +686,7 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
         params["format24Hour"] = slot.format24Hour;
         break;
     case OrbItSource::ANALOG_CLOCK:
-        // Reported as raw numeric RGB565 values, not color names - Utils::stringToColor() has no
-        // reverse (color->name) lookup.
+        // Colors are reported as RGB565 integers, the same form parseColorParam() takes back.
         params["background"] = slot.analogColors.background;
         params["tickColor"] = slot.analogColors.tick;
         params["hourColor"] = slot.analogColors.hourHand;
@@ -665,7 +698,6 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
         params["value"] = slot.gaugeConfig.value;
         params["min"] = slot.gaugeConfig.min;
         params["max"] = slot.gaugeConfig.max;
-        // Same raw-numeric-RGB565 read-back tradeoff as analogClock above.
         params["color"] = slot.gaugeConfig.color;
         params["trackColor"] = slot.gaugeConfig.trackColor;
         params["style"] = gaugeStyleToString(slot.gaugeConfig.style);
@@ -752,6 +784,12 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
                 errorMessage = "countdown action 'set' requires a positive integer params.durationSeconds";
                 return false;
             }
+            // Validated here, applied in applyCountdownAction() - this function only reports
+            // whether the write is acceptable, it doesn't touch the slot's countdown config.
+            uint32_t ignoredColor;
+            if (!parseColorParam(params["color"], "color", ignoredColor, errorMessage)) {
+                return false;
+            }
         } else if (action == "pause") {
             if (!isCurrentlyCountdown || currentState != CountdownRunState::RUNNING) {
                 errorMessage = "countdown action 'pause' requires the countdown to currently be running";
@@ -792,23 +830,14 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
 
     if (control == "analogClock") {
         // All optional - each falls back to AnalogClockColors' own default (see
-        // AnalogClockControl.h) if omitted. Color names go through the same Utils::stringToColor()
-        // parser the rest of the codebase already uses for color strings (WebDataModel etc.).
+        // AnalogClockControl.h) if omitted. See parseColorParam() for what a color can be.
         AnalogClockColors colors; // defaults
-        if (params["background"].is<const char *>()) {
-            colors.background = Utils::stringToColor(params["background"].as<String>());
-        }
-        if (params["tickColor"].is<const char *>()) {
-            colors.tick = Utils::stringToColor(params["tickColor"].as<String>());
-        }
-        if (params["hourColor"].is<const char *>()) {
-            colors.hourHand = Utils::stringToColor(params["hourColor"].as<String>());
-        }
-        if (params["minuteColor"].is<const char *>()) {
-            colors.minuteHand = Utils::stringToColor(params["minuteColor"].as<String>());
-        }
-        if (params["secondColor"].is<const char *>()) {
-            colors.secondHand = Utils::stringToColor(params["secondColor"].as<String>());
+        if (!parseColorParam(params["background"], "background", colors.background, errorMessage) ||
+            !parseColorParam(params["tickColor"], "tickColor", colors.tick, errorMessage) ||
+            !parseColorParam(params["hourColor"], "hourColor", colors.hourHand, errorMessage) ||
+            !parseColorParam(params["minuteColor"], "minuteColor", colors.minuteHand, errorMessage) ||
+            !parseColorParam(params["secondColor"], "secondColor", colors.secondHand, errorMessage)) {
+            return false;
         }
         outSlot.analogColors = colors;
         outSlot.source = OrbItSource::ANALOG_CLOCK;
@@ -831,11 +860,9 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
         if (params["max"].is<float>()) {
             gauge.max = params["max"].as<float>();
         }
-        if (params["color"].is<const char *>()) {
-            gauge.color = Utils::stringToColor(params["color"].as<String>());
-        }
-        if (params["trackColor"].is<const char *>()) {
-            gauge.trackColor = Utils::stringToColor(params["trackColor"].as<String>());
+        if (!parseColorParam(params["color"], "color", gauge.color, errorMessage) ||
+            !parseColorParam(params["trackColor"], "trackColor", gauge.trackColor, errorMessage)) {
+            return false;
         }
         if (params["style"].is<const char *>()) {
             String style = params["style"].as<String>();

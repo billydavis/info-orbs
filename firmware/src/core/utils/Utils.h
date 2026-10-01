@@ -21,6 +21,7 @@ public:
     static int getWrappedLines(String (&lines)[MAX_WRAPPED_LINES], String str, int limit);
     static String getWrappedLine(String str, int limit, int lineNum, int maxLines);
     static int32_t stringToColor(String color);
+    static bool tryStringToColor(String color, uint16_t &out);
     static String formatFloat(float value, int8_t digits);
     static int32_t stringToAlignment(String alignment);
     static uint16_t rgb565dim(uint16_t color, uint8_t brightness, bool swapBytes = false);
