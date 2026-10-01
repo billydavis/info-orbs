@@ -1,6 +1,7 @@
 #include "OrbItWidget.h"
 
 #include "config_helper.h"
+#include <LittleFS.h>
 
 #ifdef DISABLE_WEB_SERVER
     #error "The OrbIt widget is configured through orbit-api, so it needs the web server - remove DISABLE_WEB_SERVER or ORBIT_WIDGET_ENABLED from config.h"
@@ -8,6 +9,32 @@
 
 namespace {
 const char *API_BASE = "/orbit/api/v1/screens";
+
+const char *NVS_NAMESPACE = "orbit";
+const char *NVS_LAYOUT_KEY = "layout";
+const char *NOT_SAVED_WARNING = "applied, but it could not be saved - it will not survive a reboot";
+
+// Each custom drawing is saved as its own file on the LittleFS data partition rather than in NVS
+// with the rest of the layout. A drawing can run to 10KB or more, and the 20KB NVS partition -
+// shared with WiFi credentials and everything else - has only about 8KB to spare: measured on a
+// real device, an 8KB drawing left too little room to rewrite even the layout itself. Keeping
+// drawings out of the layout also means one is only written to flash when it actually changes,
+// not on every write to any screen (e.g. a sysMonitor being fed live values).
+String drawingPath(int index) {
+    return "/orbit-draw" + String(index) + ".json";
+}
+
+// Mounts the data partition on first use, formatting it if it has never held a filesystem.
+bool mountDrawingStore() {
+    static bool mounted = false;
+    if (!mounted) {
+        mounted = LittleFS.begin(true);
+        if (!mounted) {
+            Serial.println("OrbIt: unable to mount LittleFS - custom drawings can't be saved or restored");
+        }
+    }
+    return mounted;
+}
 
 // twelvedata's free tier is 8 calls/minute and 800 calls/day (verified against
 // https://twelvedata.com/pricing) - the daily cap, not the per-minute one, is what actually
@@ -544,10 +571,14 @@ void OrbItWidget::drawTickerSlot(int displayIndex, OrbItSlot &slot, bool force) 
 
 void OrbItWidget::drawCustomSlot(int displayIndex, OrbItSlot &slot, bool force) {
     WebDataModel &model = m_customModels[displayIndex];
-    if (!model.isChanged() && !force && slot.everDrawn) {
+    // everDrawn survives a write only for an overlay frame (see applySlotConfig()) - every other
+    // write, and any forced redraw, starts from a screen filled with the drawing's background.
+    bool clear = force || !slot.everDrawn;
+    if (!model.isChanged() && !clear) {
         return;
     }
     m_manager.selectScreen(displayIndex);
+    model.setFullDrawStatus(clear);
     model.draw(m_manager);
     model.setChangedStatus(false);
     slot.everDrawn = true;
@@ -622,8 +653,7 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
         break;
     case OrbItSource::ANALOG_CLOCK:
         // Reported as raw numeric RGB565 values, not color names - Utils::stringToColor() has no
-        // reverse (color->name) lookup, same lossy-read-back tradeoff already accepted for a rich
-        // "custom" slot's element array.
+        // reverse (color->name) lookup.
         params["background"] = slot.analogColors.background;
         params["tickColor"] = slot.analogColors.tick;
         params["hourColor"] = slot.analogColors.hourHand;
@@ -670,15 +700,11 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
         params["pollIntervalSeconds"] = slot.tickerPollIntervalMs / 1000;
         break;
     case OrbItSource::CUSTOM: {
-        // Best-effort, lossy read-back: WebDataModel doesn't expose a way to reconstruct the exact
-        // element array it was given, so a rich (element-array) custom slot reports a count rather
-        // than the original primitives. A plain-text custom slot round-trips exactly.
-        WebDataModel &model = m_customModels[index];
-        params["label"] = model.getLabel();
-        if (model.getElementsCount() > 0) {
-            params["elementCount"] = model.getElementsCount();
-        } else {
-            params["data"] = model.getData();
+        // Exactly the params the drawing was written with - this is also what gets saved to NVS
+        // and snapshotted for a countdown's restore-on-stop, so it has to round-trip.
+        JsonDocument stored;
+        if (slot.customParams.length() > 0 && !deserializeJson(stored, slot.customParams)) {
+            params.set(stored.as<JsonObject>());
         }
         break;
     }
@@ -913,6 +939,7 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
         // WebDataWidget's own remote JSON is handled). Actually applying it happens in
         // applySlotConfig(), which needs the raw JsonObject, not just this typed OrbItSlot.
         outSlot.source = OrbItSource::CUSTOM;
+        outSlot.customOverlay = params["overlay"].is<bool>() && params["overlay"].as<bool>();
         return true;
     }
 
@@ -926,10 +953,14 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
 // without needing to know whether OrbIt is on-screen right now. rawConfig is the original
 // {"control":..., "params":...} object - only used for "custom", which needs to hand its params
 // straight to WebDataModel::parseData() rather than going through typed OrbItSlot fields.
-void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObject rawConfig, bool immediateFetch) {
+bool OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObject rawConfig, bool immediateFetch) {
     OrbItSlot &slot = m_slots[index];
+    bool wasCustom = (slot.source == OrbItSource::CUSTOM);
     bool wasGauge = (slot.source == OrbItSource::GAUGE);
     bool wasSysMonitor = (slot.source == OrbItSource::SYS_MONITOR);
+    // An overlay only has something to go on top of if this screen is already showing a custom
+    // drawing - on any other screen it's just an ordinary (clearing) drawing.
+    bool overlayFrame = newConfig.source == OrbItSource::CUSTOM && newConfig.customOverlay && wasCustom && slot.everDrawn;
 
     // A countdown's 'set' action turning a non-countdown slot into a countdown for the first time
     // snapshots whatever was here before, so 'stop' can hand the screen back later (consumed by
@@ -963,7 +994,7 @@ void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     // isChanged()/lastValue guards.
     slot.pendingValue = "";
     slot.lastRenderedValue = "";
-    slot.everDrawn = false;
+    slot.everDrawn = overlayFrame; // ... except an overlay frame, which draws over what's there
 
     // Only reset GaugeState when this slot is newly becoming a gauge (from some other source, or
     // for the first time) - repeated gauge-to-gauge reconfiguration (the common case: a client
@@ -1007,17 +1038,37 @@ void OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
         // NOT `m_customModels[index] = WebDataModel()`, which would shallow-copy over the old
         // m_elements pointer and leak whatever it previously pointed to.
         JsonObject params = rawConfig["params"].is<JsonObject>() ? rawConfig["params"].as<JsonObject>() : JsonObject();
+        // An overlay frame is transient (think: one frame of an animation) - the drawing GET
+        // reports, and the one that comes back after a reboot, stays the one it was drawn over.
+        if (!overlayFrame) {
+            String stored;
+            if (!params.isNull()) {
+                serializeJson(params, stored);
+            }
+            // Restoring from NVS (immediateFetch=false) is by definition already saved.
+            if (immediateFetch && (!wasCustom || stored != slot.customParams)) {
+                slot.customUnsaved = true;
+            }
+            slot.customParams = stored;
+        }
+        // A write replaces the whole config, but parseData() only touches the label if one is given.
+        m_customModels[index].setLabel("");
         m_customModels[index].parseData(params, TFT_WHITE, TFT_BLACK);
+    } else if (wasCustom) {
+        slot.customParams = "";
+        slot.customUnsaved = true; // so persistLayout() drops the drawing this screen no longer shows
     }
+    return !overlayFrame;
 }
 
 // Restores a previously-saved layout from NVS, if any, overriding the compile-time defaults set
 // just before this is called in the constructor. Safe to run before WiFi is up - Preferences/NVS
 // is local flash storage, no network involved.
 void OrbItWidget::loadPersistedLayout() {
-    m_preferences.begin("orbit", true); // read-only
-    String json = m_preferences.getString("layout", "");
+    m_preferences.begin(NVS_NAMESPACE, true); // read-only
+    String json = m_preferences.getString(NVS_LAYOUT_KEY, "");
     m_preferences.end();
+    m_savedLayout = json;
 
     if (json.length() == 0) {
         return; // nothing saved yet - keep the compile-time defaults
@@ -1048,6 +1099,21 @@ void OrbItWidget::loadPersistedLayout() {
             continue;
         }
 
+        // A custom slot's params aren't in the layout - see drawingPath(). No saved drawing (it was
+        // empty, couldn't be saved, or the layout predates drawings being saved) restores as a
+        // blank screen.
+        if (entry["control"].is<const char *>() && String(entry["control"].as<const char *>()) == "custom") {
+            JsonDocument drawing;
+            if (mountDrawingStore()) {
+                File file = LittleFS.open(drawingPath(index), "r");
+                if (file) {
+                    deserializeJson(drawing, file);
+                    file.close();
+                }
+            }
+            entry["params"].set(drawing.as<JsonObject>());
+        }
+
         String errorMessage;
         OrbItSlot parsed;
         if (!parseSlotConfig(entry, parsed, errorMessage)) {
@@ -1059,27 +1125,83 @@ void OrbItWidget::loadPersistedLayout() {
     Serial.println("OrbIt: restored layout from NVS");
 }
 
-// Saves the complete current layout as one JSON blob - simpler and (for 5 small slots) not
-// meaningfully more flash wear than tracking which individual slot(s) changed. countdown slots are
+// Saves the complete current layout as one JSON blob - simpler than tracking which individual
+// slot(s) changed. What's saved is which control each screen shows and how it's configured, not
+// the live readings a client keeps feeding it: a gauge's value and a sysMonitor's numbers are left
+// out (they come back as 0 after a reboot, until the next write), and the blob is only written to
+// flash if it differs from what's already there. Together that means a client posting fresh values
+// every few seconds, around the clock, never touches flash - each of those writes used to rewrite
+// the whole layout, which would wear the NVS partition out within months. countdown slots are
 // deliberately skipped entirely: a countdown is a one-off "timebox this task" tool, not a
 // permanent screen assignment the way every other control is - it shouldn't outlive a reboot even
 // as an idle placeholder. A skipped screen just isn't mentioned in the saved array, so on restore
 // it falls back to whatever its compile-time default (or another persisted entry) says instead.
-void OrbItWidget::persistLayout() {
+// Custom drawings are the one thing not in that blob - see drawingPath().
+bool OrbItWidget::persistLayout() {
+    bool saved = true;
     JsonDocument doc;
     JsonArray screens = doc["screens"].to<JsonArray>();
     for (int i = 0; i < NUM_SCREENS; i++) {
-        if (m_slots[i].source == OrbItSource::COUNTDOWN) {
+        OrbItSlot &slot = m_slots[i];
+        if (slot.customUnsaved) {
+            slot.customUnsaved = false;
+            String path = drawingPath(i);
+            if (!mountDrawingStore()) {
+                saved = false;
+            } else if (slot.source == OrbItSource::CUSTOM && slot.customParams.length() > 0) {
+                File file = LittleFS.open(path, "w");
+                bool written = file && file.print(slot.customParams) == slot.customParams.length();
+                if (file) {
+                    file.close();
+                }
+                if (!written) {
+                    Serial.println("OrbIt: unable to save screen " + String(i) + "'s drawing (" + String(slot.customParams.length()) + " bytes)");
+                    LittleFS.remove(path); // don't leave half a drawing to be restored
+                    saved = false;
+                }
+            } else if (LittleFS.exists(path)) {
+                LittleFS.remove(path);
+            }
+        }
+
+        if (slot.source == OrbItSource::COUNTDOWN) {
             continue;
         }
-        slotToJson(i, m_slots[i], screens.add<JsonObject>());
+        JsonObject entry = screens.add<JsonObject>();
+        slotToJson(i, slot, entry);
+        entry.remove("updatedAt"); // uptime of the last write - changes every time, means nothing after a reboot
+        JsonObject params = entry["params"];
+        switch (slot.source) {
+        case OrbItSource::CUSTOM:
+            entry.remove("params");
+            break;
+        case OrbItSource::GAUGE:
+            params.remove("value");
+            break;
+        case OrbItSource::SYS_MONITOR:
+            for (const char *reading : {"cpu", "cpuTemp", "gpu", "gpuTemp", "ram", "ramTotal", "ssdTemp"}) {
+                params.remove(reading);
+            }
+            break;
+        default:
+            break;
+        }
     }
     String json;
     serializeJson(doc, json);
 
-    m_preferences.begin("orbit", false); // read-write
-    m_preferences.putString("layout", json);
-    m_preferences.end();
+    if (json != m_savedLayout) {
+        m_preferences.begin(NVS_NAMESPACE, false); // read-write
+        if (m_preferences.putString(NVS_LAYOUT_KEY, json) == 0) {
+            Serial.println("OrbIt: unable to save layout to NVS (" + String(json.length()) + " bytes)");
+            saved = false;
+        } else {
+            Serial.println("OrbIt: saved layout to NVS (" + String(json.length()) + " bytes)");
+            m_savedLayout = json;
+        }
+        m_preferences.end();
+    }
+    return saved;
 }
 
 void OrbItWidget::handleGetScreens() {
@@ -1117,12 +1239,15 @@ void OrbItWidget::handlePostScreen(int index) {
         return;
     }
 
-    applySlotConfig(index, parsed, doc.as<JsonObject>());
+    bool needsSave = applySlotConfig(index, parsed, doc.as<JsonObject>());
     consumeCountdownRestore(index);
-    persistLayout();
+    bool saved = !needsSave || persistLayout();
 
     JsonDocument response;
     slotToJson(index, m_slots[index], response.to<JsonObject>());
+    if (!saved) {
+        response["warning"] = NOT_SAVED_WARNING;
+    }
     sendJson(200, response);
 }
 
@@ -1200,15 +1325,17 @@ void OrbItWidget::handlePostScreens() {
         count++;
     }
 
+    bool needsSave = false;
     for (int i = 0; i < count; i++) {
-        applySlotConfig(indices[i], parsedSlots[i], rawEntries[i]);
+        needsSave |= applySlotConfig(indices[i], parsedSlots[i], rawEntries[i]);
         consumeCountdownRestore(indices[i]);
     }
-    if (count > 0) {
-        persistLayout();
-    }
+    bool saved = !needsSave || persistLayout();
 
     JsonDocument response;
+    if (!saved) {
+        response["warning"] = NOT_SAVED_WARNING;
+    }
     JsonArray screens = response["screens"].to<JsonArray>();
     for (int i = 0; i < NUM_SCREENS; i++) {
         slotToJson(i, m_slots[i], screens.add<JsonObject>());

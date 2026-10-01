@@ -79,6 +79,17 @@ struct OrbItSlot {
     // entirely). The live running/paused/remaining-time state lives separately in OrbItWidget's
     // m_countdownRuntimes.
     CountdownConfig countdownConfig;
+    // CUSTOM control only. The params this screen's drawing was last written with, as JSON text -
+    // WebDataModel can't reconstruct what it was given, so this is what GET, the saved layout and a
+    // countdown's restore-on-stop all read the drawing back from. An overlay frame (see
+    // customOverlay) doesn't replace it.
+    String customParams;
+    // CUSTOM control only: customParams (or this screen no longer being custom at all) hasn't been
+    // written to flash yet - consumed by OrbItWidget::persistLayout().
+    bool customUnsaved = false;
+    // CUSTOM control only, and only meaningful on a config being written: params.overlay asked for
+    // this drawing to go on top of what the screen already shows instead of clearing it first.
+    bool customOverlay = false;
 
     // Change-tracking, mirroring the isChanged()/lastValue pattern already used elsewhere in this
     // codebase (ClockWidget's m_lastDisplayNDigit, StockDataModel::isChanged()): only repaint a
@@ -144,14 +155,17 @@ private:
     void sendError(int code, const String &message);
     // immediateFetch=false is used only when restoring from NVS at construction time, before WiFi
     // is up - skips the live ticker fetch and leaves updatedAt at 0 (meaningless post-reboot millis()
-    // values aren't worth persisting/restoring).
-    void applySlotConfig(int index, const OrbItSlot &newConfig, JsonObject rawConfig, bool immediateFetch = true);
+    // values aren't worth persisting/restoring). Returns false if nothing worth saving changed (a
+    // custom overlay frame), so the caller can skip persistLayout().
+    bool applySlotConfig(int index, const OrbItSlot &newConfig, JsonObject rawConfig, bool immediateFetch = true);
 
     // Persistence (NVS via Preferences) - Step 5 of the OrbIt plan. The whole 5-slot layout is
-    // stored as one JSON blob under a single key, matching the GET /screens response shape, so
-    // save/restore reuses slotToJson()/parseSlotConfig() rather than a separate schema.
+    // stored as one JSON blob under a single key, matching the GET /screens response shape (minus
+    // live readings - see persistLayout()), so save/restore reuses slotToJson()/parseSlotConfig()
+    // rather than a separate schema.
     void loadPersistedLayout();
-    void persistLayout();
+    // Returns false if something couldn't be written.
+    bool persistLayout();
 
     TimeControl m_timeControl;
     AnalogClockControl m_analogClockControl;
@@ -213,5 +227,8 @@ private:
     WebServer &m_server;
 
     Preferences m_preferences;
+    // The layout JSON as it currently sits in NVS, so persistLayout() can skip the flash write when
+    // nothing it saves has changed.
+    String m_savedLayout;
 };
 #endif // ORBIT_WIDGET_H

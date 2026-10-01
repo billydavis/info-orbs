@@ -16,13 +16,17 @@ String WebDataModel::getData() {
 }
 
 void WebDataModel::setData(String data, int32_t defaultColor, int32_t defaultBackground) {
-    if (m_data != data) {
+    // Elements take precedence over m_data in draw(), so they have to go even when the text itself
+    // is unchanged - otherwise switching from an element array back to the same text keeps drawing
+    // the old elements.
+    if (m_data != data || m_elementsCount > 0) {
         m_data = data;
         setElementsCount(0);
         m_changed = true;
     }
 }
 void WebDataModel::setData(JsonArray data, int32_t defaultColor, int32_t defaultBackground) {
+    m_data = ""; // or an empty array would fall back to drawing whatever text was set before it
     setElementsCount(data.size());
     for (int i = 0; i < data.size(); i++) {
         m_elements[i].parseData(data[i], defaultColor, defaultBackground);
@@ -123,8 +127,13 @@ void WebDataModel::parseData(const JsonObject &doc, int32_t defaultColor, int32_
         setData(doc["data"].as<JsonArray>(), defaultColor, defaultBackground);
     } else if (const char *data = doc["data"]) {
         setData(data, defaultColor, defaultBackground);
-    } else if (String data = doc["data"].as<String>()) {
-        setData(data, defaultColor, defaultBackground);
+    } else if (doc["data"].isNull() || doc["data"].is<JsonObject>()) {
+        // Nothing usable to show (missing, null, or an object where text/an element array belongs)
+        // - show nothing, rather than as<String>()'s literal "null" or the object's raw JSON.
+        setData("", defaultColor, defaultBackground);
+    } else {
+        // A bare number/boolean - show it as text
+        setData(doc["data"].as<String>(), defaultColor, defaultBackground);
     }
     if (const char *color = doc["color"]) {
         setDataColor(color);
