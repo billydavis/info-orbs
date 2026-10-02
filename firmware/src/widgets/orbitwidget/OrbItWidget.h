@@ -5,13 +5,13 @@
 #include "Utils.h"
 #include "Widget.h"
 #include "controls/AnalogClockControl.h"
-#include "controls/AsteroidsControl.h"
 #include "controls/CountdownControl.h"
 #include "controls/GaugeControl.h"
 #include "controls/SysMonitorControl.h"
 #include "controls/TickerControl.h"
 #include "controls/TimeControl.h"
 #include "controls/WeatherControl.h"
+#include "controls/screensaver/ScreensaverControl.h"
 #include "stockwidget/StockDataModel.h"
 #include "weatherwidget/WeatherDataModel.h"
 #include "webdatawidget/WebDataModel.h"
@@ -39,8 +39,9 @@ enum class OrbItSource {
     GAUGE,
     // Yet another genuinely new rendering - see SysMonitorControl.
     SYS_MONITOR,
-    // Purely decorative screensaver - see AsteroidsControl. No config; OrbIt's default for screen 2.
-    ASTEROIDS,
+    // Purely decorative - see ScreensaverControl. params.effect picks which animation; OrbIt's
+    // default for screen 2.
+    SCREENSAVER,
     // Set/pause/resume/stop/restart via orbit-api params.action - see CountdownControl.
     COUNTDOWN,
     WEATHER,
@@ -74,6 +75,7 @@ struct OrbItSlot {
     AnalogClockColors analogColors; // ANALOG_CLOCK control only
     GaugeConfig gaugeConfig; // GAUGE control only
     SysMonitorConfig sysMonitorConfig; // SYS_MONITOR control only
+    ScreensaverConfig screensaverConfig; // SCREENSAVER control only
     // COUNTDOWN control only. The last-configured duration/label/color - in memory only, not
     // persisted (see OrbItWidget::persistLayout()'s comment on why countdown slots are skipped
     // entirely). The live running/paused/remaining-time state lives separately in OrbItWidget's
@@ -118,7 +120,7 @@ private:
     void drawAnalogClockSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawGaugeSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawSysMonitorSlot(int displayIndex, OrbItSlot &slot, bool force);
-    void drawAsteroidsSlot(int displayIndex, OrbItSlot &slot, bool force);
+    void drawScreensaverSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawCountdownSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawWeatherSlot(int displayIndex, OrbItSlot &slot, bool force);
     void drawTickerSlot(int displayIndex, OrbItSlot &slot, bool force);
@@ -171,7 +173,7 @@ private:
     AnalogClockControl m_analogClockControl;
     GaugeControl m_gaugeControl;
     SysMonitorControl m_sysMonitorControl;
-    AsteroidsControl m_asteroidsControl;
+    ScreensaverControl m_screensaverControl;
     CountdownControl m_countdownControl;
     WeatherControl m_weatherControl;
     TickerControl m_tickerControl;
@@ -204,9 +206,9 @@ private:
     // m_gaugeStates above - same partial-redraw purpose, just per-quadrant instead of per-arc.
     SysMonitorState m_sysMonitorStates[NUM_SCREENS];
 
-    // Per-screen starfield/planet/rock animation state for ASTEROIDS slots - same "caller owns the
-    // per-screen memory" pattern as m_gaugeStates/m_sysMonitorStates above.
-    AsteroidsState m_asteroidsStates[NUM_SCREENS];
+    // Per-screen animation state for SCREENSAVER slots - same "caller owns the per-screen memory"
+    // pattern as m_gaugeStates/m_sysMonitorStates above.
+    ScreensaverState m_screensaverStates[NUM_SCREENS];
 
     // Per-screen live countdown state (running/paused/remaining time) for COUNTDOWN slots -
     // intentionally separate from OrbItSlot::countdownConfig (the persisted template); see

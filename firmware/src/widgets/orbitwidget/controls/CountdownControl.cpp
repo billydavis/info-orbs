@@ -130,7 +130,7 @@ void CountdownControl::drawTimer(const CountdownConfig &config, CountdownRuntime
         // everything else on screen is already correct and untouched. Padded past the exact delta
         // by ROUND_CAP_MARGIN_DEG (clamped to the track's own natural end) so the fill's rounded
         // leading edge - which bulges past its nominal angle - never leaves a stale sliver of its
-        // own color behind, the same stale-pixel bug AsteroidsControl had to fix for its own erases.
+        // own color behind, the same stale-pixel bug AsteroidsEffect had to fix for its own erases.
         float eraseStart = fillSweep;
         float rawErase = 360.0f * (runtime.lastDrawnFraction - fraction);
         float maxErase = 360.0f - fillSweep;

@@ -65,19 +65,19 @@ Each screen holds one **slot config**: a `control` name plus a `params` object w
 | `weather` | `WeatherControl` (`firmware/src/widgets/orbitwidget/controls/`) | `params.element` picks which piece (e.g. `icon`, `temperature`, `condition`) |
 | `ticker`  | `TickerControl` (`firmware/src/widgets/orbitwidget/controls/`) | `params.symbol` — any symbol `StockWidget`/twelvedata already accepts, including crypto/forex (e.g. `BTC/USD`) per the existing widget's convention. `params.pollIntervalSeconds` (optional, default `900` = 15 minutes, matching `StockWidget`) sets how often this slot re-fetches its price — independently of every other ticker slot, and independently of `StockWidget`'s own timer if that widget is also enabled. Silently clamped up to a **300-second (5-minute) floor**: twelvedata's free tier is 800 calls/day (confirmed at <https://twelvedata.com/pricing>), and that daily cap — not the 8-calls/minute one — is what actually limits how often a slot can poll forever; 300s keeps one continuously-polling ticker slot at 288 calls/day with headroom to spare. Note this floor is per-slot only — OrbIt does not track or divide a shared daily budget across multiple simultaneous ticker slots, so setting several screens to `ticker` at once is still on you to keep reasonable. |
 | `custom`  | inline drawing, reusing `WebDataModel`/`WebDataElementModel` classes directly | `params` is one `WebDataWidget` "displays" entry (`label`/`data`/`color`/`labelColor`/`background`) plus `overlay` — either a plain string in `data` for word-wrapped centered text, or an array of drawing primitives (`type: text\|line\|rectangle\|triangle\|circle\|arc\|character`). No new drawing DSL invented. See its own section below for clearing, `overlay`, and what happens with empty or invalid `params`. |
-| `asteroids` | `AsteroidsControl` (`firmware/src/widgets/orbitwidget/controls/`) | Purely decorative screensaver — no `params`. A slowly drifting starfield (one star occasionally twinkles) with a small ringed planet labeled "Orb-It" and a few wireframe rocks that drift and bounce elastically off the round bezel's visible edge, evoking the classic vector-graphics Asteroids arcade screen. Everything is confined to a circle centered on the screen (same margin `GaugeControl`'s `OUTER_RADIUS` uses) so nothing gets clipped by the physical bezel. Animation runs at ~20fps, throttled independently of the rest of `update()`. This is OrbIt's default for screen 2 (previously a plain `custom` text label). |
+| `screensaver` | `ScreensaverControl` (`firmware/src/widgets/orbitwidget/controls/screensaver/`) | Purely decorative animation, no data source. `params.effect` picks which one (or `cycle` to rotate through them all) and `params.color` optionally tints it — see its own section below. This is OrbIt's default for screen 2. `asteroids` is still accepted as a `control` on write, as an alias for the `asteroids` effect. |
 | `countdown` | `CountdownControl` (`firmware/src/widgets/orbitwidget/controls/`) | A countdown timer, command-driven via `params.action` rather than a plain value write — see its own section below. |
 | `blank`   | clears the screen to black, no content                 | explicit "nothing assigned here" state, distinct from a slot that's never been configured |
 
 ### Colors
 
-The color params of `analogClock`, `gauge` and `countdown` are **RGB565 integers**, `0`-`65535` — the 16-bit format the displays use natively (5 bits red, 6 green, 5 blue). `GET` reports them the same way, so a color read back from the device can be sent straight back and means exactly the same thing.
+The color params of `analogClock`, `gauge`, `countdown` and `screensaver` are **RGB565 integers**, `0`-`65535` — the 16-bit format the displays use natively (5 bits red, 6 green, 5 blue). `GET` reports them the same way, so a color read back from the device can be sent straight back and means exactly the same thing.
 
 To convert a 24-bit `#RRGGBB` color: `((R >> 3) << 11) | ((G >> 2) << 5) | (B >> 3)`. For example `#00FFFF` (cyan) is `2047`, `#FF0000` (red) is `63488`, white is `65535`, black is `0`.
 
 A color **name** is also accepted on write, as a convenience for hand-written requests: `black`, `navy`, `darkgreen`, `darkcyan`, `maroon`, `purple`, `olive`, `lightgrey` (or `grey`), `darkgrey`, `blue`, `green`, `cyan`, `red`, `magenta`, `yellow`, `white`, `orange`, `greenyellow`, `pink`, `brown`, `gold`, `silver`, `skyblue` (case and spaces are ignored). A name is only an input shorthand — `GET` always reports the integer.
 
-Omitting a color param (or sending `null` or `""`) uses that control's default. Anything else — an unknown name, a number outside `0`-`65535`, a fraction, a boolean — is a `400` and the screen is left untouched (see "Validation & error responses").
+Omitting a color param (or sending `null` or `""`) uses that control's default (for `screensaver`, the effect's own default). Anything else — an unknown name, a number outside `0`-`65535`, a fraction, a boolean — is a `400` and the screen is left untouched (see "Validation & error responses").
 
 This doesn't apply to `custom`, whose colors are part of the `WebDataWidget` drawing format: names only, and an unknown one draws as black.
 
@@ -95,6 +95,40 @@ This doesn't apply to `custom`, whose colors are part of the `WebDataWidget` dra
 **Empty or unusable `params` blank the screen.** Missing `params`, `{}`, missing/`null` `data`, an empty `data` array, or `data` that's an object all clear the screen to `background` and draw nothing. Individual entries of a `data` array that aren't a known primitive `type` are skipped; the rest still draw. (A request body that isn't valid JSON at all is still a `400` and leaves the screen untouched — see "Validation & error responses".)
 
 **`GET` reports the `params` exactly as written**, element array included.
+
+### `screensaver` control
+
+A decorative animation that needs no data. All `params` are optional:
+
+| param | meaning |
+|-------|---------|
+| `effect` | Which animation to show (table below), or `cycle` to show each in turn. Default `asteroids`. An unknown name is a `400`. |
+| `color` | A color (see "Colors" above) that tints the effect. Omitted, the effect uses its own default. With `cycle`, a color applies to every effect in turn; omitted, each uses its own. |
+| `cycleSeconds` | Only used by `cycle`: how long to stay on each effect. Default `300` (5 minutes). Silently clamped to `30`–`86400` rather than rejected. |
+
+| effect | what it shows | `color` tints | default color |
+|--------|---------------|---------------|---------------|
+| `asteroids` | A slowly drifting starfield (one star occasionally twinkles) with a small ringed planet labeled "Orb-It" and a few wireframe rocks that drift and bounce elastically off the round bezel's visible edge, evoking the classic vector-graphics Asteroids arcade screen. | the planet (its label switches between black and white to stay readable) | orange (`64800`) |
+| `matrix` | "Digital rain": columns of mirrored katakana and digits falling down the screen at different speeds, each drop a white head trailing a tail that fades out at its end, with the odd glyph changing as it falls. | the rain (the heads stay white) | green (`2016`) |
+| `warp` | A flight down a wormhole: stars streak outward from a vanishing point, speeding up and brightening as they go, between rings that expand the same way. The tunnel takes a random turn every few seconds: its far end swings off to one side while the rings about to pass stay centred, so the rings in between trail off in a curve, and each new turn arrives from the distance. | the rings (the stars stay white) | sky blue (`34429`) |
+| `orrery` | A small solar system: a sun in the middle of the screen and five planets circling it along faint orbit lines, the inner ones faster than the outer (one lap in 8 seconds for the innermost, about a minute for the outermost). One planet has a ring, one has a moon, and a few stars sit behind it all. | the sun (the planets keep their own colors) | gold (`65184`) |
+| `radar` | A radar scope: a beam sweeping round the screen every 6 seconds over range rings and crosshairs, leaving a fading afterglow behind it. Six contacts light up as the beam passes them and fade before it comes round again, each having drifted a little — or been replaced by a new one elsewhere — by then. | the whole scope | green (`2016`) |
+
+```json
+{ "control": "screensaver", "params": { "effect": "asteroids", "color": "cyan" } }
+```
+
+`GET` reports `effect` always, `cycleSeconds` only for `cycle`, and `color` only when one was set — so a screen using an effect's default color reads back without a `color`, and posting that back keeps the default.
+
+**`cycle` rotates through the effects** in the order of the table above — `asteroids`, `matrix`, `warp`, `orrery`, `radar`, then round again — starting from `asteroids` whenever a screen is set cycling, and after a reboot. Which effect a cycling screen is currently on isn't reported by `GET` and isn't saved. The time is counted even while another widget is on screen, so coming back to OrbIt after longer than `cycleSeconds` moves on one effect, not several.
+
+```json
+{ "control": "screensaver", "params": { "effect": "cycle", "cycleSeconds": 120 } }
+```
+
+**`asteroids` used to be a control of its own.** `{ "control": "asteroids" }` is still accepted on write (and in a layout saved by older firmware) and means `screensaver` with `effect: "asteroids"`; any `params.effect` sent with it is ignored. `GET` reports the screen as `screensaver`.
+
+Every effect is laid out for the round bezel — `asteroids`, `orrery` and `radar` keep everything inside a circle centered on the screen so nothing gets clipped, while `matrix` and `warp` deliberately run off its edge — and only repaints what moved, never the whole screen. Animation runs at ~20fps, throttled independently of the rest of `update()`. Any write to the screen restarts the animation from a fresh random start.
 
 ### `countdown` control
 
@@ -144,7 +178,7 @@ Returns all 5 current slot configs as an array, index-aligned with screen number
   "screens": [
     { "screen": 0, "control": "time", "params": { "showDate": true, "showDay": true, "format24Hour": false }, "updatedAt": 1234567890 },
     { "screen": 1, "control": "weather", "params": { "element": "temperature" }, "updatedAt": 0 },
-    { "screen": 2, "control": "asteroids", "params": {}, "updatedAt": 0 },
+    { "screen": 2, "control": "screensaver", "params": { "effect": "asteroids" }, "updatedAt": 0 },
     { "screen": 3, "control": "analogClock", "params": { "background": 0, "tickColor": 65535, "hourColor": 65535, "minuteColor": 65535, "secondColor": 63488 }, "updatedAt": 1234567890 },
     { "screen": 4, "control": "ticker", "params": { "symbol": "BTC/USD", "pollIntervalSeconds": 900 }, "updatedAt": 1234567999 }
   ]
@@ -222,7 +256,7 @@ Per the earlier discussion: a data-backed control like `ticker` separates "did t
 
 Every successful `POST` (single or bulk) — other than a `custom` overlay frame — saves the complete 5-slot layout as one JSON blob to NVS via the ESP32 `Preferences` library (namespace `"orbit"`, key `"layout"` — same JSON shape as `GET /screens`, minus `updatedAt`, live readings, and the `params` of `custom` slots).
 
-**Live readings are not saved.** What persists is which control each screen shows and how it's configured — not the values a client keeps feeding it. A `gauge`'s `value` and all of a `sysMonitor`'s readings (`cpu`/`cpuTemp`/`gpu`/`gpuTemp`/`ram`/`ramTotal`/`ssdTemp`) are left out of the saved layout: after a reboot the screen comes back as the same gauge (label, range, colors, style) or sysMonitor (`center`) showing `0`, until the next write. Colors are saved and restored as the RGB565 integers `GET` reports. And the layout is only written to flash when the saved form actually differs from what's already there — so posting fresh values every few seconds, indefinitely, causes no flash writes at all. (Each such write used to rewrite the whole layout, which would have worn out the NVS partition within months.)
+**Live readings are not saved.** What persists is which control each screen shows and how it's configured — not the values a client keeps feeding it. A `gauge`'s `value` and all of a `sysMonitor`'s readings (`cpu`/`cpuTemp`/`gpu`/`gpuTemp`/`ram`/`ramTotal`/`ssdTemp`) are left out of the saved layout: after a reboot the screen comes back as the same gauge (label, range, colors, style) or sysMonitor (`center`) showing `0`, until the next write. Colors are saved and restored as the RGB565 integers `GET` reports. And the layout is only written to flash when the saved form actually differs from what's already there — so posting fresh values every few seconds, indefinitely, causes no flash writes at all. (Each such write used to rewrite the whole layout, which would have worn out the NVS partition within months.) A `screensaver` has no live readings at all: `effect`, `color` and `cycleSeconds` are all settings and all saved, and neither the animation nor a `cycle` moving on to its next effect ever writes to flash.
 
  Each `custom` drawing's `params` are saved separately, as a file on the LittleFS data partition (`/orbit-draw0.json`..`/orbit-draw4.json`), and only when that drawing actually changes — so a drawing comes back after a reboot exactly as it was written, without being rewritten to flash every time some other screen is updated. Drawings don't go in NVS because they don't fit: the NVS partition is 20KB, shared with WiFi credentials and the rest of the firmware, and has only about 8KB to spare, while the data partition is 1.9MB. If something can't be saved, the write is still applied to the screen and the response carries a `"warning"` (see "Response on successful write"); a `custom` screen whose drawing wasn't saved comes back blank after a reboot. On boot, `OrbItWidget`'s constructor restores this before WiFi is even up (NVS is local flash, no network needed) and it overrides the compile-time default layout. A ticker slot restored this way does *not* trigger an immediate fetch (no network yet); it picks up fresh data on the normal polling cycle once WiFi connects. `updatedAt` is not meaningfully persisted — it's a `millis()`-based uptime value that resets every reboot, so a restored slot reports `updatedAt: 0` until it's next written via the API in the current session. A corrupt or unparseable saved layout is logged and ignored (compile-time defaults apply instead), never crashes the boot.
 

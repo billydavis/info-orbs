@@ -1,26 +1,21 @@
-#include "AsteroidsControl.h"
+#include "AsteroidsEffect.h"
 
-#include "config_helper.h"
+#include "ScreensaverCommon.h"
 #include <math.h>
 
+using namespace Screensaver;
+
 namespace {
-const int CENTRE = SCREEN_SIZE / 2;
-// Keeps every moving object's centre within this radius of CENTRE so nothing drifts under the
-// round bezel - same margin reasoning as GaugeControl's OUTER_RADIUS.
-const int PLAYFIELD_RADIUS = 100;
 const int PLANET_RADIUS = 24;
-const uint32_t PLANET_COLOR = 0xFD20; // orange (RGB565)
 const uint32_t PLANET_RING_COLOR = TFT_SILVER;
-const uint32_t LABEL_COLOR = TFT_BLACK;
 const int LABEL_FONT_SIZE = 13;
 // When the planet moves, a black ring this much wider than the planet is painted around its new
 // position to wipe whatever the old position left sticking out. It has to cover more than the
 // planet's own per-frame travel (under 3px even at MAX_FRAME_DT): the "Orb-It" label can render a
-// few pixels wider than the planet's diameter, and its anti-aliased edge pixels (black blended
-// into the orange fill) would otherwise be left behind as a trailing streak.
+// few pixels wider than the planet's diameter, and its anti-aliased edge pixels (the label blended
+// into the planet's fill) would otherwise be left behind as a trailing streak.
 const int PLANET_ERASE_MARGIN = 8;
 const uint32_t ROCK_COLOR = TFT_LIGHTGREY;
-const float MAX_FRAME_DT = 0.2f; // clamp so a stall (e.g. first frame, widget switch) doesn't fling anything across the screen
 // Pixels per second, per star tier - brighter stars read as nearer, so they drift a little faster.
 const float STAR_DRIFT_SPEED[] = {1.2f, 0.8f, 0.5f};
 const uint32_t STAR_COLOR[] = {TFT_WHITE, TFT_LIGHTGREY, TFT_DARKGREY};
@@ -31,6 +26,15 @@ uint32_t starColor(const AsteroidsState &state, int i) {
         return state.starTier[i] == 2 ? TFT_WHITE : TFT_DARKGREY;
     }
     return STAR_COLOR[state.starTier[i]];
+}
+
+// The planet's color is configurable, so its label is black on a light planet and white on a dark one.
+uint32_t labelColor(uint32_t planetColor) {
+    int r = ((planetColor >> 11) & 0x1F) << 3;
+    int g = ((planetColor >> 5) & 0x3F) << 2;
+    int b = (planetColor & 0x1F) << 3;
+    int brightness = (r * 299 + g * 587 + b * 114) / 1000;
+    return brightness < 110 ? TFT_WHITE : TFT_BLACK;
 }
 
 bool underPlanet(int x, int y, int planetX, int planetY) {
@@ -66,10 +70,10 @@ void stepAndBounce(float &x, float &y, float &vx, float &vy, float radius, float
 }
 } // namespace
 
-AsteroidsControl::AsteroidsControl(ScreenManager &manager) : m_manager(manager) {
+AsteroidsEffect::AsteroidsEffect(ScreenManager &manager) : m_manager(manager) {
 }
 
-void AsteroidsControl::seed(AsteroidsState &state) {
+void AsteroidsEffect::seed(AsteroidsState &state, unsigned long now) {
     for (int i = 0; i < AsteroidsState::NUM_STARS; i++) {
         // Random point anywhere in the square framebuffer is fine for stars - unlike the planet/
         // rocks they're single pixels, so a few landing outside the visible circle just get
@@ -82,7 +86,8 @@ void AsteroidsControl::seed(AsteroidsState &state) {
     state.starDriftX = cosf(driftAngle);
     state.starDriftY = sinf(driftAngle);
     state.blinkStar = -1;
-    state.nextBlinkMs = millis() + random(500, 2500);
+    state.blinkUntilMs = 0;
+    state.nextBlinkMs = now + random(500, 2500);
 
     float planetAngle = random(0, 360) * DEG_TO_RAD;
     float planetSpeed = 14.0f;
@@ -123,17 +128,15 @@ void AsteroidsControl::seed(AsteroidsState &state) {
         state.lastRockX[r] = (int) state.rockX[r];
         state.lastRockY[r] = (int) state.rockY[r];
     }
-
-    state.lastFrameMs = millis();
 }
 
-void AsteroidsControl::drawStars(const AsteroidsState &state) {
+void AsteroidsEffect::drawStars(const AsteroidsState &state) {
     for (int i = 0; i < AsteroidsState::NUM_STARS; i++) {
         m_manager.fillRect((int) state.starX[i], (int) state.starY[i], 1, 1, starColor(state, i));
     }
 }
 
-void AsteroidsControl::updateStars(AsteroidsState &state, float dt, unsigned long now, int planetX, int planetY, bool planetMoved, const bool *rockMoved) {
+void AsteroidsEffect::updateStars(AsteroidsState &state, float dt, unsigned long now, int planetX, int planetY, bool planetMoved, const bool *rockMoved) {
     // At most one star changes twinkle state per frame: the current one ends, or a new one starts.
     int blinkChanged = -1;
     if (state.blinkStar >= 0) {
@@ -184,13 +187,13 @@ void AsteroidsControl::updateStars(AsteroidsState &state, float dt, unsigned lon
     }
 }
 
-void AsteroidsControl::drawPlanet(int x, int y) {
-    m_manager.fillCircle(x, y, PLANET_RADIUS, PLANET_COLOR);
+void AsteroidsEffect::drawPlanet(int x, int y, uint32_t color) {
+    m_manager.fillCircle(x, y, PLANET_RADIUS, color);
     m_manager.drawCircle(x, y, PLANET_RADIUS - 7, PLANET_RING_COLOR);
-    m_manager.drawString("Orb-It", x, y, LABEL_FONT_SIZE, Align::MiddleCenter, LABEL_COLOR, PLANET_COLOR);
+    m_manager.drawString("Orb-It", x, y, LABEL_FONT_SIZE, Align::MiddleCenter, labelColor(color), color);
 }
 
-void AsteroidsControl::drawRock(const AsteroidsState &state, int rockIndex, int x, int y, uint32_t color) {
+void AsteroidsEffect::drawRock(const AsteroidsState &state, int rockIndex, int x, int y, uint32_t color) {
     for (int p = 0; p < AsteroidsState::ROCK_POINTS; p++) {
         int nextP = (p + 1) % AsteroidsState::ROCK_POINTS;
         int x1 = x + state.rockOffsetX[rockIndex][p];
@@ -201,27 +204,17 @@ void AsteroidsControl::drawRock(const AsteroidsState &state, int rockIndex, int 
     }
 }
 
-void AsteroidsControl::draw(int displayIndex, AsteroidsState &state, bool fullRedraw) {
-    m_manager.selectScreen(displayIndex);
-
-    if (fullRedraw || !state.initialized) {
-        seed(state);
+void AsteroidsEffect::draw(AsteroidsState &state, uint32_t color, float dt, unsigned long now, bool fullRedraw) {
+    if (fullRedraw) {
+        seed(state, now);
         m_manager.fillScreen(TFT_BLACK);
         drawStars(state);
-        drawPlanet((int) state.planetX, (int) state.planetY);
+        drawPlanet((int) state.planetX, (int) state.planetY, color);
         for (int r = 0; r < AsteroidsState::NUM_ROCKS; r++) {
             drawRock(state, r, (int) state.rockX[r], (int) state.rockY[r], ROCK_COLOR);
         }
-        state.initialized = true;
         return;
     }
-
-    unsigned long now = millis();
-    float dt = (now - state.lastFrameMs) / 1000.0f;
-    if (dt > MAX_FRAME_DT) {
-        dt = MAX_FRAME_DT;
-    }
-    state.lastFrameMs = now;
 
     stepAndBounce(state.planetX, state.planetY, state.planetVX, state.planetVY, PLANET_RADIUS, dt);
     int planetX = (int) state.planetX;
@@ -254,7 +247,7 @@ void AsteroidsControl::draw(int displayIndex, AsteroidsState &state, bool fullRe
     updateStars(state, dt, now, planetX, planetY, planetMoved, rockMoved);
 
     if (planetDirty) {
-        drawPlanet(planetX, planetY);
+        drawPlanet(planetX, planetY, color);
     }
     state.lastPlanetX = planetX;
     state.lastPlanetY = planetY;

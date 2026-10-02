@@ -46,6 +46,11 @@ bool mountDrawingStore() {
 // on you to keep the combined polling reasonable.
 const unsigned long MIN_TICKER_POLL_INTERVAL_MS = 300000;
 
+// How long a cycling screensaver may stay on each effect: long enough to actually watch one, and
+// short enough that the millisecond count can't overflow.
+const long MIN_SCREENSAVER_CYCLE_SECONDS = 30;
+const long MAX_SCREENSAVER_CYCLE_SECONDS = 86400;
+
 // Reads one optional color param. The wire format is the RGB565 integer slotToJson() reports, so
 // whatever a GET returns can be sent straight back - which is also what this widget does to itself
 // when it restores the saved layout at boot or a countdown's previous control. A color name is
@@ -87,8 +92,8 @@ String sourceToString(OrbItSource source) {
         return "gauge";
     case OrbItSource::SYS_MONITOR:
         return "sysMonitor";
-    case OrbItSource::ASTEROIDS:
-        return "asteroids";
+    case OrbItSource::SCREENSAVER:
+        return "screensaver";
     case OrbItSource::COUNTDOWN:
         return "countdown";
     case OrbItSource::WEATHER:
@@ -142,7 +147,7 @@ String countdownStateToString(CountdownRunState state) {
 }
 } // namespace
 
-OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_sysMonitorControl(manager), m_asteroidsControl(manager), m_countdownControl(manager), m_weatherControl(manager), m_tickerControl(manager), m_server(WebService::getInstance()->server()) {
+OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_sysMonitorControl(manager), m_screensaverControl(manager), m_countdownControl(manager), m_weatherControl(manager), m_tickerControl(manager), m_server(WebService::getInstance()->server()) {
     // Compile-time starting layout - orbit-api can reassign any of this at runtime. Mixes pieces of
     // Clock/Weather/Stock across screens simultaneously, which is the whole point of this widget.
     m_slots[0].source = OrbItSource::TIME;
@@ -153,9 +158,9 @@ OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeContro
     m_slots[1].weatherElement = WeatherElement::TEMPERATURE;
 
     // Default screen 2 to the decorative Asteroids-style screensaver (starfield + a bouncing
-    // planet labeled "Orb-It") instead of a plain text label - orbit-api can still reassign it to
-    // anything else, including "custom", at runtime.
-    m_slots[2].source = OrbItSource::ASTEROIDS;
+    // planet labeled "Orb-It", ScreensaverConfig's own default effect) instead of a plain text
+    // label - orbit-api can still reassign it to anything else, including "custom", at runtime.
+    m_slots[2].source = OrbItSource::SCREENSAVER;
 
     // Default screen 3 to a classic analog clock face.
     m_slots[3].source = OrbItSource::ANALOG_CLOCK;
@@ -214,9 +219,9 @@ void OrbItWidget::update(bool force) {
             // change via an orbit-api write, which already forces a redraw itself.
             const SysMonitorConfig &s = m_slots[i].sysMonitorConfig;
             m_slots[i].pendingValue = String(s.cpu) + "|" + String(s.cpuTemp) + "|" + String(s.gpu) + "|" + String(s.gpuTemp) + "|" + String(s.ram) + "|" + String(s.ramTotal) + "|" + String(s.ssdTemp) + "|" + s.center;
-        } else if (m_slots[i].source == OrbItSource::ASTEROIDS) {
+        } else if (m_slots[i].source == OrbItSource::SCREENSAVER) {
             // Throttles the animation to ~20fps regardless of how fast loop() itself spins - a new
-            // stamp every 50ms is what actually drives drawAsteroidsSlot()'s redraw below.
+            // stamp every 50ms is what actually drives drawScreensaverSlot()'s redraw below.
             m_slots[i].pendingValue = String(millis() / 50);
         } else if (m_slots[i].source == OrbItSource::COUNTDOWN) {
             const CountdownRuntime &runtime = m_countdownRuntimes[i];
@@ -481,8 +486,8 @@ void OrbItWidget::drawSlot(int displayIndex, OrbItSlot &slot, bool force) {
     case OrbItSource::SYS_MONITOR:
         drawSysMonitorSlot(displayIndex, slot, force);
         break;
-    case OrbItSource::ASTEROIDS:
-        drawAsteroidsSlot(displayIndex, slot, force);
+    case OrbItSource::SCREENSAVER:
+        drawScreensaverSlot(displayIndex, slot, force);
         break;
     case OrbItSource::COUNTDOWN:
         drawCountdownSlot(displayIndex, slot, force);
@@ -552,13 +557,13 @@ void OrbItWidget::drawSysMonitorSlot(int displayIndex, OrbItSlot &slot, bool for
     slot.everDrawn = true;
 }
 
-void OrbItWidget::drawAsteroidsSlot(int displayIndex, OrbItSlot &slot, bool force) {
+void OrbItWidget::drawScreensaverSlot(int displayIndex, OrbItSlot &slot, bool force) {
     if (slot.pendingValue == slot.lastRenderedValue && !force) {
         return;
     }
     m_manager.setFont(DEFAULT_FONT);
     bool fullRedraw = force || !slot.everDrawn;
-    m_asteroidsControl.draw(displayIndex, m_asteroidsStates[displayIndex], fullRedraw);
+    m_screensaverControl.draw(displayIndex, slot.screensaverConfig, m_screensaverStates[displayIndex], fullRedraw);
     slot.lastRenderedValue = slot.pendingValue;
     slot.everDrawn = true;
 }
@@ -712,7 +717,18 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
         params["ssdTemp"] = slot.sysMonitorConfig.ssdTemp;
         params["center"] = slot.sysMonitorConfig.center;
         break;
-    case OrbItSource::ASTEROIDS:
+    case OrbItSource::SCREENSAVER:
+        if (slot.screensaverConfig.cycle) {
+            params["effect"] = "cycle";
+            params["cycleSeconds"] = slot.screensaverConfig.cycleMs / 1000;
+        } else {
+            params["effect"] = ScreensaverControl::effectName(slot.screensaverConfig.effect);
+        }
+        // Left out when the effect is using its own default color, so that's what a round trip
+        // through parseSlotConfig() gives back.
+        if (slot.screensaverConfig.colorSet) {
+            params["color"] = slot.screensaverConfig.color;
+        }
         break;
     case OrbItSource::COUNTDOWN: {
         params["label"] = slot.countdownConfig.label;
@@ -761,8 +777,38 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
         return true;
     }
 
-    if (control == "asteroids") {
-        outSlot.source = OrbItSource::ASTEROIDS;
+    // "asteroids" was a control of its own before it became one of the screensaver's effects - still
+    // accepted, both from older clients and from a layout saved by older firmware.
+    if (control == "screensaver" || control == "asteroids") {
+        ScreensaverConfig screensaver; // defaults
+        if (control == "screensaver" && !params["effect"].isNull()) {
+            String effect = params["effect"].as<String>();
+            if (params["effect"].is<const char *>() && effect == "cycle") {
+                screensaver.cycle = true;
+            } else if (!params["effect"].is<const char *>() || !ScreensaverControl::effectFromName(effect, screensaver.effect)) {
+                errorMessage = "unknown screensaver effect '" + effect + "'";
+                return false;
+            }
+        }
+        // Optional, and only meaningful for "cycle" - defaults to ScreensaverConfig's own (5
+        // minutes). Clamped rather than rejected, same reasoning as ticker's pollIntervalSeconds.
+        if (screensaver.cycle && params["cycleSeconds"].is<int>()) {
+            long seconds = constrain(params["cycleSeconds"].as<long>(), MIN_SCREENSAVER_CYCLE_SECONDS, MAX_SCREENSAVER_CYCLE_SECONDS);
+            screensaver.cycleMs = (unsigned long) seconds * 1000UL;
+        }
+        // Optional - omitted means the effect's own default color. parseColorParam() only ever
+        // writes a 16-bit value, so this one can't be mistaken for a color it was given.
+        const uint32_t NO_COLOR = 0xFFFFFFFF;
+        uint32_t color = NO_COLOR;
+        if (!parseColorParam(params["color"], "color", color, errorMessage)) {
+            return false;
+        }
+        if (color != NO_COLOR) {
+            screensaver.colorSet = true;
+            screensaver.color = color;
+        }
+        outSlot.screensaverConfig = screensaver;
+        outSlot.source = OrbItSource::SCREENSAVER;
         return true;
     }
 
@@ -1013,6 +1059,7 @@ bool OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     slot.analogColors = newConfig.analogColors;
     slot.gaugeConfig = newConfig.gaugeConfig;
     slot.sysMonitorConfig = newConfig.sysMonitorConfig;
+    slot.screensaverConfig = newConfig.screensaverConfig;
     // A restored-at-boot slot hasn't been "written this session" in any meaningful sense - millis()
     // resets every reboot, so a persisted value would be misleading, not just stale.
     slot.updatedAt = immediateFetch ? millis() : 0;
