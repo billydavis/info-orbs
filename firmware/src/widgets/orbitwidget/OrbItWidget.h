@@ -3,6 +3,7 @@
 
 #include "GlobalTime.h"
 #include "Utils.h"
+#include "WebService.h"
 #include "Widget.h"
 #include "controls/AnalogClockControl.h"
 #include "controls/CountdownControl.h"
@@ -18,7 +19,6 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
-#include "WebService.h"
 
 // OrbIt treats each of the 5 physical screens as an independently assignable "slot" instead of
 // one widget owning all 5 screens the way ClockWidget/WeatherWidget/StockWidget do. Slot
@@ -65,6 +65,9 @@ struct OrbItSlot {
     bool showDay = false; // TIME control only
     bool format24Hour = false; // TIME control only - independent of GlobalTime's own device-wide setting
     WeatherElement weatherElement = WeatherElement::ICON;
+    WeatherStyle weatherStyle; // WEATHER control only
+    String weatherLocation; // WEATHER control only: "" follows WEATHER_LOCATION from config.h
+    bool weatherFetchPending = false; // WEATHER control only: fetch on the next update(), don't wait for the refresh timer
     String tickerSymbol;
     // TICKER control only. Independent per slot (not shared with StockWidget's own timer, nor with
     // any other OrbIt ticker slot) so orbit-api can give each screen its own cadence. Defaults to
@@ -129,7 +132,7 @@ private:
     void updateWeather(bool force);
     void updateTicker(bool force);
     void updateCountdown(bool force);
-    bool fetchWeatherData(WeatherDataModel &model);
+    bool fetchWeatherData(const String &weatherLocation);
     void fetchTickerData(StockDataModel &stock);
     // Mutates m_countdownRuntimes[index]/m_slots[index].countdownConfig per params.action - see the
     // 'countdown' control's validation in parseSlotConfig for the state-dependent preconditions
@@ -147,6 +150,7 @@ private:
     void handlePostScreens();
     void handlePostScreen(int index);
     void handleRefreshScreen(int index);
+    void handleWeatherPreview();
     // screenIndex is used only by the 'countdown' control, to validate an action (e.g. 'pause')
     // against that specific screen's current live CountdownRuntime state - every other control
     // ignores it. -1 means "no specific screen" (used by loadPersistedLayout()'s restore path,
@@ -180,7 +184,9 @@ private:
 
     OrbItSlot m_slots[NUM_SCREENS];
 
-    WeatherDataModel m_weatherModel;
+    // One per screen, like the ticker models below - each weather slot can show its own location.
+    // Slots showing the same location are fetched once between them (see fetchWeatherData()).
+    WeatherDataModel m_weatherModels[NUM_SCREENS];
     ScreenMode m_weatherScreenMode = Dark;
     unsigned long m_weatherDelay = 600000; // matches WeatherWidget's refresh rate
     unsigned long m_weatherDelayPrev = 0;

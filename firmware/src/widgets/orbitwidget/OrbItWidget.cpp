@@ -9,6 +9,7 @@
 
 namespace {
 const char *API_BASE = "/orbit/api/v1/screens";
+const char *WEATHER_PREVIEW_URI = "/orbit/api/v1/weather/preview";
 
 const char *NVS_NAMESPACE = "orbit";
 const char *NVS_LAYOUT_KEY = "layout";
@@ -46,6 +47,9 @@ bool mountDrawingStore() {
 // on you to keep the combined polling reasonable.
 const unsigned long MIN_TICKER_POLL_INTERVAL_MS = 300000;
 
+// Plenty for "City, Region, Country" or a pair of coordinates, and keeps the saved layout small.
+const unsigned int MAX_WEATHER_LOCATION_LENGTH = 64;
+
 // How long a cycling screensaver may stay on each effect: long enough to actually watch one, and
 // short enough that the millisecond count can't overflow.
 const long MIN_SCREENSAVER_CYCLE_SECONDS = 30;
@@ -80,6 +84,27 @@ bool parseColorParam(JsonVariantConst value, const char *name, uint32_t &out, St
     }
     errorMessage = String("params.") + name + " must be an RGB565 integer (0-65535) or a color name";
     return false;
+}
+
+// The location a weather slot shows: its own params.location, or WEATHER_LOCATION from config.h.
+// The config value goes into the request as written, as it always has; one given through the API
+// is percent-encoded, since it can hold anything.
+String weatherLocationOf(const OrbItSlot &slot) {
+    if (slot.weatherLocation.length() == 0) {
+        return WEATHER_LOCATION;
+    }
+    String encoded;
+    for (size_t i = 0; i < slot.weatherLocation.length(); i++) {
+        char c = slot.weatherLocation[i];
+        if (isalnum((unsigned char) c) || c == '-' || c == '_' || c == '.' || c == '~' || c == ',') {
+            encoded += c;
+        } else {
+            char hex[4];
+            snprintf(hex, sizeof(hex), "%%%02X", (unsigned char) c);
+            encoded += hex;
+        }
+    }
+    return encoded;
 }
 
 String sourceToString(OrbItSource source) {
@@ -256,9 +281,29 @@ void OrbItWidget::update(bool force) {
     }
 }
 
+// Every weather slot refreshes on the one shared timer, with one request per distinct location -
+// screens showing different pieces of the same place share a fetch.
 void OrbItWidget::updateWeather(bool force) {
-    if (force || m_weatherDelayPrev == 0 || (millis() - m_weatherDelayPrev) >= m_weatherDelay) {
-        fetchWeatherData(m_weatherModel);
+    // Between refreshes, only a slot that was just given a location nobody had readings for (see
+    // applySlotConfig()) gets fetched.
+    bool refreshDue = force || m_weatherDelayPrev == 0 || (millis() - m_weatherDelayPrev) >= m_weatherDelay;
+    for (int i = 0; i < NUM_SCREENS; i++) {
+        if (m_slots[i].source != OrbItSource::WEATHER || !(refreshDue || m_slots[i].weatherFetchPending)) {
+            continue;
+        }
+        // Cleared whether or not the fetch works - a location that can't be resolved is retried at
+        // the next refresh, not on every pass.
+        m_slots[i].weatherFetchPending = false;
+        String location = weatherLocationOf(m_slots[i]);
+        bool alreadyFetched = false;
+        for (int j = 0; j < i && !alreadyFetched; j++) {
+            alreadyFetched = m_slots[j].source == OrbItSource::WEATHER && weatherLocationOf(m_slots[j]) == location;
+        }
+        if (!alreadyFetched) {
+            fetchWeatherData(location);
+        }
+    }
+    if (refreshDue) {
         m_weatherDelayPrev = millis();
     }
 }
@@ -383,9 +428,9 @@ void OrbItWidget::consumeCountdownRestore(int index) {
 }
 
 // Mirrors WeatherWidget::getWeatherData() - duplicated rather than shared since OrbIt is meant to
-// stay self-contained from the original widgets.
-bool OrbItWidget::fetchWeatherData(WeatherDataModel &model) {
-    const String weatherLocation = WEATHER_LOCATION;
+// stay self-contained from the original widgets. Fetches one location (as weatherLocationOf()
+// gives it) and hands the result to every weather slot showing that location.
+bool OrbItWidget::fetchWeatherData(const String &weatherLocation) {
 #ifdef WEATHER_UNITS_METRIC
     const String weatherUnits = "metric";
 #else
@@ -393,14 +438,20 @@ bool OrbItWidget::fetchWeatherData(WeatherDataModel &model) {
 #endif
     const String weatherApiKey = WEATHER_API_KEY;
     const String httpRequestAddress = "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/" +
-                                       weatherLocation + "/next3days?key=" + weatherApiKey + "&unitGroup=" + weatherUnits +
-                                       "&include=days,current&iconSet=icons1&lang=" + LOC_LANG;
+                                      weatherLocation + "/next3days?key=" + weatherApiKey + "&unitGroup=" + weatherUnits +
+                                      "&include=days,current&iconSet=icons1&lang=" + LOC_LANG;
 
     HTTPClient http;
     http.begin(httpRequestAddress);
     int httpCode = http.GET();
     if (httpCode <= 0) {
         Serial.printf("OrbIt: weather HTTP request failed, error: %s\n", http.errorToString(httpCode).c_str());
+        http.end();
+        return false;
+    }
+    // What an unknown location gets - the body is a plain-text message, not weather.
+    if (httpCode != HTTP_CODE_OK) {
+        Serial.printf("OrbIt: weather request for '%s' was refused with HTTP %d\n", weatherLocation.c_str(), httpCode);
         http.end();
         return false;
     }
@@ -413,12 +464,18 @@ bool OrbItWidget::fetchWeatherData(WeatherDataModel &model) {
         return false;
     }
 
-    model.setCityName(doc["resolvedAddress"].as<String>());
-    model.setCurrentTemperature(doc["currentConditions"]["temp"].as<float>());
-    model.setCurrentText(doc["days"][0]["description"].as<String>());
-    model.setCurrentIcon(doc["currentConditions"]["icon"].as<String>());
-    model.setTodayHigh(doc["days"][0]["tempmax"].as<float>());
-    model.setTodayLow(doc["days"][0]["tempmin"].as<float>());
+    for (int i = 0; i < NUM_SCREENS; i++) {
+        if (m_slots[i].source != OrbItSource::WEATHER || weatherLocationOf(m_slots[i]) != weatherLocation) {
+            continue;
+        }
+        WeatherDataModel &model = m_weatherModels[i];
+        model.setCityName(doc["resolvedAddress"].as<String>());
+        model.setCurrentTemperature(doc["currentConditions"]["temp"].as<float>());
+        model.setCurrentText(doc["days"][0]["description"].as<String>());
+        model.setCurrentIcon(doc["currentConditions"]["icon"].as<String>());
+        model.setTodayHigh(doc["days"][0]["tempmax"].as<float>());
+        model.setTodayLow(doc["days"][0]["tempmin"].as<float>());
+    }
     return true;
 }
 
@@ -462,13 +519,6 @@ void OrbItWidget::fetchTickerData(StockDataModel &stock) {
 void OrbItWidget::draw(bool force) {
     for (int i = 0; i < NUM_SCREENS; i++) {
         drawSlot(i, m_slots[i], force);
-    }
-
-    // One isChanged() flag can drive multiple weather slots in the same pass (e.g. icon on one
-    // screen, temperature on another) - reset it once after all of them have had a chance to see it,
-    // not inside drawWeatherSlot() itself.
-    if (m_weatherModel.isChanged()) {
-        m_weatherModel.setChangedStatus(false);
     }
 }
 
@@ -579,21 +629,23 @@ void OrbItWidget::drawCountdownSlot(int displayIndex, OrbItSlot &slot, bool forc
 }
 
 void OrbItWidget::drawWeatherSlot(int displayIndex, OrbItSlot &slot, bool force) {
-    if (!m_weatherModel.isChanged() && !force && slot.everDrawn) {
+    WeatherDataModel &model = m_weatherModels[displayIndex];
+    if (!model.isChanged() && !force && slot.everDrawn) {
         return;
     }
     m_manager.setFont(DEFAULT_FONT);
     switch (slot.weatherElement) {
     case WeatherElement::ICON:
-        m_weatherControl.drawIcon(displayIndex, m_weatherScreenMode, m_weatherModel.getCurrentIcon(), 0, 0, 1);
+        m_weatherControl.drawIcon(displayIndex, m_weatherScreenMode, model.getCurrentIcon(), 0, 0, 1);
         break;
     case WeatherElement::TEMPERATURE:
-        m_weatherControl.drawTemperature(displayIndex, m_weatherScreenMode, m_weatherModel);
+        m_weatherControl.drawTemperature(displayIndex, m_weatherScreenMode, model, slot.weatherStyle);
         break;
     case WeatherElement::CONDITION:
-        m_weatherControl.drawCondition(displayIndex, m_weatherScreenMode, m_weatherModel);
+        m_weatherControl.drawCondition(displayIndex, m_weatherScreenMode, model, slot.weatherStyle);
         break;
     }
+    model.setChangedStatus(false);
     slot.everDrawn = true;
 }
 
@@ -643,6 +695,8 @@ void OrbItWidget::setupApiRoutes() {
         m_server.on(uri, HTTP_POST, [this, i]() { handlePostScreen(i); });
         m_server.on(uri + "/refresh", HTTP_POST, [this, i]() { handleRefreshScreen(i); });
     }
+
+    m_server.on(WEATHER_PREVIEW_URI, HTTP_POST, [this]() { handleWeatherPreview(); });
 
     // Only routes for screens 0..NUM_SCREENS-1 are registered above, so an out-of-range index (or
     // any other unmatched path) falls through to the core server's 404, which uses the same
@@ -742,6 +796,21 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
     }
     case OrbItSource::WEATHER:
         params["element"] = weatherElementToString(slot.weatherElement);
+        // Left out while the screen follows WEATHER_LOCATION, same idea as the colors below.
+        if (slot.weatherLocation.length() > 0) {
+            params["location"] = slot.weatherLocation;
+        }
+        // Each color is left out while it's using its default, so that's what a round trip through
+        // parseSlotConfig() gives back - same as the screensaver's color.
+        for (const auto &color : {std::make_pair("color", slot.weatherStyle.color), std::make_pair("background", slot.weatherStyle.background), std::make_pair("highColor", slot.weatherStyle.highColor), std::make_pair("lowColor", slot.weatherStyle.lowColor), std::make_pair("cityColor", slot.weatherStyle.cityColor)}) {
+            if (color.second != WEATHER_COLOR_DEFAULT) {
+                params[color.first] = color.second;
+            }
+        }
+        if (slot.weatherElement == WeatherElement::TEMPERATURE) {
+            params["showHighLow"] = slot.weatherStyle.showHighLow;
+            params["showCity"] = slot.weatherStyle.showCity;
+        }
         break;
     case OrbItSource::TICKER:
         params["symbol"] = slot.tickerSymbol;
@@ -983,6 +1052,39 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
             errorMessage = "unknown weather element '" + element + "'";
             return false;
         }
+        // All optional. A color left out stays "not set", which WeatherControl turns into a default
+        // that follows WEATHER_SCREEN_MODE. Ones the chosen element doesn't draw are accepted and
+        // kept, so switching element doesn't mean re-sending the colors.
+        WeatherStyle style; // defaults
+        if (!parseColorParam(params["color"], "color", style.color, errorMessage) ||
+            !parseColorParam(params["background"], "background", style.background, errorMessage) ||
+            !parseColorParam(params["highColor"], "highColor", style.highColor, errorMessage) ||
+            !parseColorParam(params["lowColor"], "lowColor", style.lowColor, errorMessage) ||
+            !parseColorParam(params["cityColor"], "cityColor", style.cityColor, errorMessage)) {
+            return false;
+        }
+        if (params["showHighLow"].is<bool>()) {
+            style.showHighLow = params["showHighLow"].as<bool>();
+        }
+        // Optional - omitted (or "") follows WEATHER_LOCATION from config.h.
+        String location;
+        if (!params["location"].isNull()) {
+            if (!params["location"].is<const char *>()) {
+                errorMessage = "params.location must be a string";
+                return false;
+            }
+            location = params["location"].as<String>();
+            location.trim();
+            if (location.length() > MAX_WEATHER_LOCATION_LENGTH) {
+                errorMessage = "params.location is too long (max " + String(MAX_WEATHER_LOCATION_LENGTH) + " characters)";
+                return false;
+            }
+        }
+        // A temperature for somewhere other than the configured location says where, unless told
+        // not to - with several orbs tracking different places, a bare number isn't enough.
+        style.showCity = params["showCity"].is<bool>() ? params["showCity"].as<bool>() : location.length() > 0;
+        outSlot.weatherLocation = location;
+        outSlot.weatherStyle = style;
         outSlot.source = OrbItSource::WEATHER;
         return true;
     }
@@ -1031,6 +1133,8 @@ bool OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     bool wasCustom = (slot.source == OrbItSource::CUSTOM);
     bool wasGauge = (slot.source == OrbItSource::GAUGE);
     bool wasSysMonitor = (slot.source == OrbItSource::SYS_MONITOR);
+    // Style-only writes to a weather screen (the common case) keep the readings it already has.
+    bool sameWeather = slot.source == OrbItSource::WEATHER && newConfig.source == OrbItSource::WEATHER && slot.weatherLocation == newConfig.weatherLocation;
     // An overlay only has something to go on top of if this screen is already showing a custom
     // drawing - on any other screen it's just an ordinary (clearing) drawing.
     bool overlayFrame = newConfig.source == OrbItSource::CUSTOM && newConfig.customOverlay && wasCustom && slot.everDrawn;
@@ -1054,6 +1158,8 @@ bool OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     slot.showDay = newConfig.showDay;
     slot.format24Hour = newConfig.format24Hour;
     slot.weatherElement = newConfig.weatherElement;
+    slot.weatherStyle = newConfig.weatherStyle;
+    slot.weatherLocation = newConfig.weatherLocation;
     slot.tickerSymbol = newConfig.tickerSymbol;
     slot.tickerPollIntervalMs = newConfig.tickerPollIntervalMs;
     slot.analogColors = newConfig.analogColors;
@@ -1082,6 +1188,24 @@ bool OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     // value update, or a plain value POST would force a full repaint every time.
     if (slot.source == OrbItSource::SYS_MONITOR && !wasSysMonitor) {
         m_sysMonitorStates[index] = SysMonitorState();
+    }
+
+    if (slot.source == OrbItSource::WEATHER && !sameWeather) {
+        // Another screen already showing this location has its readings - no need to ask again.
+        // Otherwise ask for a fetch on the next update() rather than leave the screen empty until
+        // the shared timer comes round. Not fetched right here: this runs inside the web server's
+        // request handler, and a TLS request on top of the bulk handler's stack overflowed the
+        // loop task's stack and reset the device.
+        m_weatherModels[index] = WeatherDataModel();
+        String location = weatherLocationOf(slot);
+        bool shared = false;
+        for (int i = 0; i < NUM_SCREENS && !shared; i++) {
+            if (i != index && m_slots[i].source == OrbItSource::WEATHER && weatherLocationOf(m_slots[i]) == location) {
+                m_weatherModels[index] = m_weatherModels[i];
+                shared = true;
+            }
+        }
+        slot.weatherFetchPending = !shared;
     }
 
     if (slot.source == OrbItSource::TICKER) {
@@ -1342,6 +1466,49 @@ void OrbItWidget::handleRefreshScreen(int index) {
 
     JsonDocument response;
     slotToJson(index, slot, response.to<JsonObject>());
+    sendJson(200, response);
+}
+
+// Stands in made-up readings for the fetched ones, to see how a weather screen copes with values
+// the real weather won't produce on demand (a three-digit temperature, a negative one). Nothing is
+// saved: the readings are live data, and the next fetch replaces them - which this pushes a full
+// refresh interval away, so the preview stays up for about ten minutes.
+void OrbItWidget::handleWeatherPreview() {
+    JsonDocument doc;
+    if (!m_server.hasArg("plain") || deserializeJson(doc, m_server.arg("plain")) || !doc.is<JsonObject>()) {
+        sendError(400, "body must be a JSON object with any of 'temperature', 'high', 'low'");
+        return;
+    }
+    for (const char *reading : {"temperature", "high", "low"}) {
+        if (!doc[reading].isNull() && !doc[reading].is<float>()) {
+            sendError(400, String("'") + reading + "' must be a number");
+            return;
+        }
+    }
+
+    // Every weather screen gets them, whatever location it shows.
+    for (int i = 0; i < NUM_SCREENS; i++) {
+        if (m_slots[i].source != OrbItSource::WEATHER) {
+            continue;
+        }
+        if (doc["temperature"].is<float>()) {
+            m_weatherModels[i].setCurrentTemperature(doc["temperature"].as<float>());
+        }
+        if (doc["high"].is<float>()) {
+            m_weatherModels[i].setTodayHigh(doc["high"].as<float>());
+        }
+        if (doc["low"].is<float>()) {
+            m_weatherModels[i].setTodayLow(doc["low"].as<float>());
+        }
+    }
+    m_weatherDelayPrev = millis();
+
+    JsonDocument response;
+    for (const char *reading : {"temperature", "high", "low"}) {
+        if (doc[reading].is<float>()) {
+            response[reading] = doc[reading].as<float>();
+        }
+    }
     sendJson(200, response);
 }
 

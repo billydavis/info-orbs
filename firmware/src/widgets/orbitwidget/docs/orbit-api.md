@@ -62,7 +62,7 @@ Each screen holds one **slot config**: a `control` name plus a `params` object w
 | `analogClock` | `AnalogClockControl` (`firmware/src/widgets/orbitwidget/controls/`) | Draws a classic analog clock face (circle, 12 hour ticks, smoothly-moving hour/minute/second hands) — a genuinely new rendering, not adapted from any existing widget. All `params` are optional colors (see "Colors" below): `background` (default black), `tickColor` (default white), `hourColor`/`minuteColor` (default white), `secondColor` (default red). Only the hands are erased-and-redrawn each second (not a full-screen `fillScreen()`), which is what keeps it flicker-free — hand lengths stay well short of the tick marks so this can't accidentally erase the face. |
 | `gauge` | `GaugeControl` (`firmware/src/widgets/orbitwidget/controls/`) | Circular progress gauge for an arbitrary value — track arc + partial fill arc + centered value/label text. Mocked up live (three styles, real 240×240 scale) before any of this was written. All `params` optional: `label` (default none), `value`/`min`/`max` (default `0`/`0`/`100`), `color`/`trackColor` (colors, see "Colors" below; default cyan/darkgrey), `style` — `"ring"` (full 360°, default), `"speedometer"` (270° sweep, gap at bottom), or `"instrument"` (300° sweep with 10% tick marks, thinner ring). The value renders with a `%` suffix only for the default 0–100 range — an arbitrary range (e.g. a temperature) doesn't get a misleading percent sign. Uses `ScreenManager::drawArc` (the same function `StockWidget` already uses for its full-circle price ring) rather than `AnalogClockControl`'s own hand-rolled trig — see the angle-convention note in `GaugeControl.h` for how its "0°=12 o'clock" convention gets converted to `drawArc`'s native "0°=6 o'clock" one (confirmed directly from the TFT_eSPI source, not assumed). A pure value change only redraws the fill arc's leading edge and the value text (no `fillScreen()`, no flicker) via a `GaugeState` remembering what was last actually drawn per screen — a style or color change still forces a full repaint, since an already-drawn arc segment can't be cheaply recolored in place. |
 | `sysMonitor` | `SysMonitorControl` (`firmware/src/widgets/orbitwidget/controls/`) | A CPU/GPU/RAM/drive-temp dashboard on a single screen — four fixed-position quadrant blocks (CPU top-left, GPU top-right, RAM bottom-left, drive temp bottom-right), each a value + label + small horizontal fill bar, plus an optional center readout. Mocked up as "Halo Cluster" (originally four ring gauges, later swapped for the bars seen here after live testing showed the rings didn't leave enough room) at https://claude.ai/artifact/EXGMbSSKAvayjQoMen4rws. All `params` optional, default `0`: `cpu`/`gpu`/`ram` (percent, 0–100), `cpuTemp`/`gpuTemp`/`ssdTemp` (°C), `ramTotal` (GB, shown alongside RAM's label; omit/0 to hide it). `params.center` picks what the middle of the screen shows: one of `"cpu"`, `"cpuTemp"`, `"gpu"`, `"gpuTemp"`, `"ram"`, `"ssdTemp"` to pin a specific reading there, `"none"` to leave it blank, or omit it (default) to auto-pick whichever of cpu/gpu/ram is currently highest. Quadrant colors are fixed per metric (cyan/magenta/orange/red), not configurable — the color coding is the layout's whole identity. Redraws are per-quadrant (and separately, the center): a `SysMonitorState` remembers what was last drawn for each of the four blocks and the center independently, so a change to one value only repaints that one block, matching `GaugeState`'s approach. |
-| `weather` | `WeatherControl` (`firmware/src/widgets/orbitwidget/controls/`) | `params.element` picks which piece (e.g. `icon`, `temperature`, `condition`) |
+| `weather` | `WeatherControl` (`firmware/src/widgets/orbitwidget/controls/`) | `params.element` (required) picks which piece: `icon`, `temperature` or `condition`. Optional colors and `showHighLow` style it — see its own section below. |
 | `ticker`  | `TickerControl` (`firmware/src/widgets/orbitwidget/controls/`) | `params.symbol` — any symbol `StockWidget`/twelvedata already accepts, including crypto/forex (e.g. `BTC/USD`) per the existing widget's convention. `params.pollIntervalSeconds` (optional, default `900` = 15 minutes, matching `StockWidget`) sets how often this slot re-fetches its price — independently of every other ticker slot, and independently of `StockWidget`'s own timer if that widget is also enabled. Silently clamped up to a **300-second (5-minute) floor**: twelvedata's free tier is 800 calls/day (confirmed at <https://twelvedata.com/pricing>), and that daily cap — not the 8-calls/minute one — is what actually limits how often a slot can poll forever; 300s keeps one continuously-polling ticker slot at 288 calls/day with headroom to spare. Note this floor is per-slot only — OrbIt does not track or divide a shared daily budget across multiple simultaneous ticker slots, so setting several screens to `ticker` at once is still on you to keep reasonable. |
 | `custom`  | inline drawing, reusing `WebDataModel`/`WebDataElementModel` classes directly | `params` is one `WebDataWidget` "displays" entry (`label`/`data`/`color`/`labelColor`/`background`) plus `overlay` — either a plain string in `data` for word-wrapped centered text, or an array of drawing primitives (`type: text\|line\|rectangle\|triangle\|circle\|arc\|character`). No new drawing DSL invented. See its own section below for clearing, `overlay`, and what happens with empty or invalid `params`. |
 | `screensaver` | `ScreensaverControl` (`firmware/src/widgets/orbitwidget/controls/screensaver/`) | Purely decorative animation, no data source. `params.effect` picks which one (or `cycle` to rotate through them all) and `params.color` optionally tints it — see its own section below. This is OrbIt's default for screen 2. `asteroids` is still accepted as a `control` on write, as an alias for the `asteroids` effect. |
@@ -71,7 +71,7 @@ Each screen holds one **slot config**: a `control` name plus a `params` object w
 
 ### Colors
 
-The color params of `analogClock`, `gauge`, `countdown` and `screensaver` are **RGB565 integers**, `0`-`65535` — the 16-bit format the displays use natively (5 bits red, 6 green, 5 blue). `GET` reports them the same way, so a color read back from the device can be sent straight back and means exactly the same thing.
+The color params of `analogClock`, `gauge`, `weather`, `countdown` and `screensaver` are **RGB565 integers**, `0`-`65535` — the 16-bit format the displays use natively (5 bits red, 6 green, 5 blue). `GET` reports them the same way, so a color read back from the device can be sent straight back and means exactly the same thing.
 
 To convert a 24-bit `#RRGGBB` color: `((R >> 3) << 11) | ((G >> 2) << 5) | (B >> 3)`. For example `#00FFFF` (cyan) is `2047`, `#FF0000` (red) is `63488`, white is `65535`, black is `0`.
 
@@ -80,6 +80,43 @@ A color **name** is also accepted on write, as a convenience for hand-written re
 Omitting a color param (or sending `null` or `""`) uses that control's default (for `screensaver`, the effect's own default). Anything else — an unknown name, a number outside `0`-`65535`, a fraction, a boolean — is a `400` and the screen is left untouched (see "Validation & error responses").
 
 This doesn't apply to `custom`, whose colors are part of the `WebDataWidget` drawing format: names only, and an unknown one draws as black.
+
+### `weather` control
+
+One piece of the weather panel per screen. `params.element` is required; everything else is optional:
+
+| param | applies to | meaning |
+|-------|------------|---------|
+| `element` | — | `icon` (the current-conditions icon), `temperature` (current temperature with today's high and low under it) or `condition` (city name and a text description). |
+| `location` | all | Where this screen's weather is for — anything Visual Crossing accepts (`"Phoenix, AZ"`, a postal code, `"lat,lon"`), up to 64 characters. Omitted or `""`, the screen follows `WEATHER_LOCATION` from `config.h`. See "Locations" below. |
+| `showCity` | `temperature` | Shows the city name above the temperature. Default `true` when `location` is given, `false` otherwise. |
+| `color` | `temperature`, `condition` | The main text: the current temperature, or the description. Default white (black with `WEATHER_SCREEN_MODE` set to Light). |
+| `background` | `temperature`, `condition` | The screen fill. Default black (white in Light mode). |
+| `highColor`, `lowColor` | `temperature` | Today's high and low, each with its "High"/"Low" caption. Default: the same as `color`. |
+| `showHighLow` | `temperature` | `false` drops the high and low and centers the current temperature on the screen. Default `true`. |
+| `cityColor` | `temperature`, `condition` | The city name. Default: the same as `color`. |
+
+The colors are as described under "Colors" above. The `icon` element is a full-screen image and has nothing to color. A color the chosen element doesn't draw is still accepted, kept and reported, so switching a screen between elements doesn't lose it.
+
+```json
+{ "control": "weather", "params": { "element": "temperature", "color": "cyan", "highColor": "orange", "lowColor": "skyblue" } }
+```
+
+In Light mode the high and low sit on a band filled with `color`, and default to `background` so they stay readable on it.
+
+`GET` reports `element` always, `showHighLow` and `showCity` for `temperature`, and `location` and each color only when one was set — so a screen using the defaults reads back without them, and posting that back keeps the defaults.
+
+**Locations.** Each weather screen can show a different place, so one set of orbs can track several:
+
+```json
+{ "control": "weather", "params": { "element": "temperature", "location": "Phoenix, AZ" } }
+```
+
+- Setting or changing a screen's `location` fetches its weather within a moment of the write (not during it, so the response comes back before the readings do); after that every weather screen refreshes together every 10 minutes. Screens showing the same location share one request, so the icon, temperature and condition of one place cost a single call per refresh.
+- The city name shown is the first part of the address Visual Crossing resolved the location to, not the text that was sent.
+- A location isn't checked when it's written. One Visual Crossing can't resolve is logged on serial and leaves the screen with empty readings (`0°`, no city) until it's corrected.
+- Each distinct location is its own request against the Visual Crossing key's daily quota, every 10 minutes — worth keeping in mind on a free key before spreading many locations across the screens.
+- This is OrbIt's own fetching: the stock `WeatherWidget` still only ever uses `WEATHER_LOCATION` and is unaffected.
 
 ### `custom` control
 
@@ -222,6 +259,16 @@ Ticker slots only — immediately re-fetches that slot's price from twelvedata, 
 
 Repeatedly hammering this endpoint can still blow through twelvedata's 800-calls/day cap — that's on the caller, not something OrbIt tracks or throttles for you.
 
+### `POST /orbit/api/v1/weather/preview`
+
+Shows made-up weather readings in place of the fetched ones, for checking how a `weather` screen looks with values the real weather won't produce on demand — a three-digit temperature, a negative one. Body: a JSON object with any of `temperature`, `high` and `low` (numbers, in the device's configured units); the ones left out keep their current value.
+
+```json
+{ "temperature": 104, "high": 110, "low": 98 }
+```
+
+Every `weather` screen redraws with the new readings, whatever location it shows. They are never saved, and the next weather fetch replaces them — a preview postpones that fetch by a full refresh interval, so it stays up for about ten minutes (or until a reboot). Response is the readings that were given. `400` if the body isn't a JSON object or a reading isn't a number.
+
 ### Response on successful write
 
 Both POST endpoints echo back what was actually applied (post-validation), same shape as the GET responses. This lets a client confirm the write took effect without a follow-up GET.
@@ -256,7 +303,7 @@ Per the earlier discussion: a data-backed control like `ticker` separates "did t
 
 Every successful `POST` (single or bulk) — other than a `custom` overlay frame — saves the complete 5-slot layout as one JSON blob to NVS via the ESP32 `Preferences` library (namespace `"orbit"`, key `"layout"` — same JSON shape as `GET /screens`, minus `updatedAt`, live readings, and the `params` of `custom` slots).
 
-**Live readings are not saved.** What persists is which control each screen shows and how it's configured — not the values a client keeps feeding it. A `gauge`'s `value` and all of a `sysMonitor`'s readings (`cpu`/`cpuTemp`/`gpu`/`gpuTemp`/`ram`/`ramTotal`/`ssdTemp`) are left out of the saved layout: after a reboot the screen comes back as the same gauge (label, range, colors, style) or sysMonitor (`center`) showing `0`, until the next write. Colors are saved and restored as the RGB565 integers `GET` reports. And the layout is only written to flash when the saved form actually differs from what's already there — so posting fresh values every few seconds, indefinitely, causes no flash writes at all. (Each such write used to rewrite the whole layout, which would have worn out the NVS partition within months.) A `screensaver` has no live readings at all: `effect`, `color` and `cycleSeconds` are all settings and all saved, and neither the animation nor a `cycle` moving on to its next effect ever writes to flash.
+**Live readings are not saved.** What persists is which control each screen shows and how it's configured — not the values a client keeps feeding it. A `gauge`'s `value` and all of a `sysMonitor`'s readings (`cpu`/`cpuTemp`/`gpu`/`gpuTemp`/`ram`/`ramTotal`/`ssdTemp`) are left out of the saved layout: after a reboot the screen comes back as the same gauge (label, range, colors, style) or sysMonitor (`center`) showing `0`, until the next write. Colors are saved and restored as the RGB565 integers `GET` reports. And the layout is only written to flash when the saved form actually differs from what's already there — so posting fresh values every few seconds, indefinitely, causes no flash writes at all. (Each such write used to rewrite the whole layout, which would have worn out the NVS partition within months.) A `weather` screen's params (`element`, `location`, its colors, `showHighLow`, `showCity`) are all settings and all saved; the weather itself is fetched fresh after a reboot and never written to flash. A `screensaver` has no live readings at all: `effect`, `color` and `cycleSeconds` are all settings and all saved, and neither the animation nor a `cycle` moving on to its next effect ever writes to flash.
 
  Each `custom` drawing's `params` are saved separately, as a file on the LittleFS data partition (`/orbit-draw0.json`..`/orbit-draw4.json`), and only when that drawing actually changes — so a drawing comes back after a reboot exactly as it was written, without being rewritten to flash every time some other screen is updated. Drawings don't go in NVS because they don't fit: the NVS partition is 20KB, shared with WiFi credentials and the rest of the firmware, and has only about 8KB to spare, while the data partition is 1.9MB. If something can't be saved, the write is still applied to the screen and the response carries a `"warning"` (see "Response on successful write"); a `custom` screen whose drawing wasn't saved comes back blank after a reboot. On boot, `OrbItWidget`'s constructor restores this before WiFi is even up (NVS is local flash, no network needed) and it overrides the compile-time default layout. A ticker slot restored this way does *not* trigger an immediate fetch (no network yet); it picks up fresh data on the normal polling cycle once WiFi connects. `updatedAt` is not meaningfully persisted — it's a `millis()`-based uptime value that resets every reboot, so a restored slot reports `updatedAt: 0` until it's next written via the API in the current session. A corrupt or unparseable saved layout is logged and ignored (compile-time defaults apply instead), never crashes the boot.
 
