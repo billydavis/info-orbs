@@ -1,0 +1,21 @@
+{
+  "id": "parqet",
+  "kind": "widget",
+  "order": 400,
+  "name": "Parqet portfolio",
+  "description": "A public parqet.com portfolio.",
+  "default": false,
+  "switch": {
+    "macro": "PARQET_PORTFOLIO_ID",
+    "style": "value"
+  },
+  "flashKb": 18,
+  "settings": [
+    {
+      "macro": "PARQET_PORTFOLIO_ID",
+      "type": "string",
+      "prompt": "Portfolio id (the portfolio must be public)",
+      "default": ""
+    }
+  ]
+}

@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Info Orbs Setup</title>
+<!-- Served by setup/setup.py on this computer only. Everything is inline: no internet needed. -->
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --text: #1b1f24; --muted: #5f6b7a; --line: #dde1e6;
+    --accent: #2563eb; --accent-text: #ffffff; --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
+    --track: #e6e9ee; --chip: #eef2f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --panel: #1a1f25; --text: #e6e9ee; --muted: #94a0ae; --line: #2b323b;
+      --accent: #5b8def; --accent-text: #0b0e12; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
+      --track: #2b323b; --chip: #232a32;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 780px; margin: 0 auto; padding: 24px 16px 140px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 28px 0 8px; }
+  .intro { color: var(--muted); margin: 0 0 8px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 4px 16px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); }
+  .panel > .row:first-child, details > .row:first-of-type { border-top: 0; }
+  .row label { font-weight: 500; }
+  .help { grid-column: 1 / -1; color: var(--muted); font-size: 13px; margin-top: -2px; }
+  .status { grid-column: 2; font-size: 13px; color: var(--muted); min-height: 0; }
+  .status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
+  input[type=text], input[type=number], select {
+    width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--text); font: inherit;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .toggle { justify-self: start; width: 18px; height: 18px; accent-color: var(--accent); }
+  .range { display: flex; gap: 10px; align-items: center; }
+  .range input { flex: 1; accent-color: var(--accent); }
+  .range output { min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
+  .color { display: flex; gap: 10px; align-items: center; }
+  .color input[type=color] { width: 44px; height: 30px; border: 1px solid var(--line); border-radius: 6px; background: none; padding: 2px; }
+  .color code { color: var(--muted); }
+  .suggest { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; }
+  .suggest button { border: 1px solid var(--line); background: var(--chip); color: var(--text); border-radius: 999px; padding: 2px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  details { border-top: 1px solid var(--line); }
+  summary { cursor: pointer; padding: 10px 16px; color: var(--accent); font-size: 14px; list-style: none; }
+  summary::before { content: "\25B8"; display: inline-block; width: 1em; transition: transform .15s; }
+  details[open] > summary::before { transform: rotate(90deg); }
+  .group-body { margin-left: 16px; border-left: 2px solid var(--line); }
+  .group-body .row { padding-left: 14px; }
+
+  .widget { margin-bottom: 10px; }
+  .feature-head { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; cursor: pointer; }
+  .feature-head input { margin-top: 3px; width: 18px; height: 18px; flex: none; accent-color: var(--accent); cursor: pointer; }
+  .feature-head .name { font-weight: 600; }
+  .feature-head .desc { color: var(--muted); font-size: 14px; }
+  .feature-head .size { margin-left: auto; color: var(--muted); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; padding-top: 2px; }
+  .widget > .body { border-top: 1px solid var(--line); }
+  .children { padding: 4px 0; }
+  .children .feature-head { padding: 7px 16px 7px 44px; }
+  .children .children .feature-head { padding-left: 74px; }
+  .children .feature-head .name { font-weight: 500; }
+  .children-title { padding: 10px 16px 0 44px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  [hidden] { display: none !important; }
+
+  footer {
+    position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line);
+    box-shadow: 0 -4px 16px rgba(0,0,0,.06);
+  }
+  .footer-inner { max-width: 780px; margin: 0 auto; padding: 12px 16px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; align-items: center; }
+  .meter { height: 8px; background: var(--track); border-radius: 999px; overflow: hidden; margin-top: 6px; }
+  .meter div { height: 100%; width: 0; background: var(--ok); transition: width .2s, background .2s; }
+  .meter.warn div { background: var(--warn); } .meter.bad div { background: var(--bad); }
+  .size-text { font-variant-numeric: tabular-nums; }
+  .size-text small { color: var(--muted); }
+  .messages { grid-column: 1 / -1; font-size: 14px; }
+  .messages p { margin: 2px 0; }
+  .messages .bad { color: var(--bad); } .messages .note { color: var(--muted); } .messages .ok { color: var(--ok); }
+  button.primary { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 8px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.primary:disabled { opacity: .45; cursor: not-allowed; }
+  button.secondary { background: none; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 16px; font: inherit; cursor: pointer; }
+  .actions { display: flex; gap: 8px; }
+  .fatal { padding: 16px; color: var(--bad); }
+  @media (max-width: 560px) {
+    .row { grid-template-columns: 1fr; }
+    .status, .suggest { grid-column: 1; }
+    .children .feature-head { padding-left: 28px; }
+    .children .children .feature-head { padding-left: 44px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Info Orbs setup</h1>
+  <p class="intro">Choose what to build into your orbs' firmware and how it's set up. Only what you tick is built, so the less you pick, the more space is left over. Nothing is saved until you press <b>Write config.h</b>.</p>
+  <p class="intro" id="source"></p>
+  <div id="app"></div>
+</main>
+<footer>
+  <div class="footer-inner">
+    <div>
+      <div class="size-text" id="size">Working out the size...</div>
+      <div class="meter" id="meter"><div></div></div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="write">Write config.h</button>
+      <button class="secondary" id="done" hidden>Done</button>
+    </div>
+    <div class="messages" id="messages"></div>
+  </div>
+</footer>
+<script>
+"use strict";
+const token = location.hash.slice(1);
+let model, on, values, byId;
+const refreshers = [];      // run after every change, to show/hide and update what depends on it
+const sharedSettings = [];  // device settings shown under the first widget that needs them
+
+function api(path, body) {
+  const options = { headers: { "X-Setup-Token": token } };
+  if (body !== undefined) {
+    options.method = "POST";
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(body);
+  }
+  return fetch(path, options).then(r => r.json().then(data => ({ ok: r.ok, data })));
+}
+
+function el(tag, attrs, ...kids) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") node.className = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else if (v !== undefined && v !== null && v !== false) node.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid !== null && kid !== undefined) node.append(kid);
+  return node;
+}
+
+function kb(n) { return n < 1024 ? n + "KB" : (n / 1024).toFixed(2) + "MB"; }
+function sizeOf(f) { return (f.flashKb || 0) + Object.values(f.sharedKb || {}).reduce((a, b) => a + b, 0); }
+
+function enabled(id) {
+  const f = byId[id];
+  if (f.switch && !on[id]) return false;
+  return !f.parent || enabled(f.parent);
+}
+function topWidget(id) { let f = byId[id]; while (f.parent) f = byId[f.parent]; return f.id; }
+function validChoices(s) { return s.choices.filter(c => !c.feature || enabled(c.feature)); }
+function flat(items) { return items.flatMap(i => i.type === "group" ? i.settings : [i]); }
+
+// ---------- colours: the firmware wants RGB565 ("0xfc80"), the colour picker wants #rrggbb
+function rgb565ToHex(v) {
+  const n = parseInt(v, 16) || 0;
+  const r = (n >> 11) & 31, g = (n >> 5) & 63, b = n & 31;
+  const h = x => x.toString(16).padStart(2, "0");
+  return "#" + h(Math.round(r * 255 / 31)) + h(Math.round(g * 255 / 63)) + h(Math.round(b * 255 / 31));
+}
+function hexToRgb565(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  return "0x" + (((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)).toString(16).padStart(4, "0");
+}
+
+// ---------- one setting
+let uid = 0;
+function settingRow(s) {
+  const id = "s" + (uid++);
+  const status = el("div", { class: "status" });
+  let control, extra = null;
+  const set = v => { values[s.macro] = v; changed(); };
+  const current = values[s.macro];
+
+  if (s.type === "bool" || s.type === "flag") {
+    control = el("input", { type: "checkbox", class: "toggle", id, onchange: e => set(e.target.checked) });
+    control.checked = !!current;
+  } else if (s.type === "choice") {
+    control = el("select", { id, onchange: e => set(e.target.value === "" ? null : e.target.value) });
+    refreshers.push(() => {
+      const options = validChoices(s).map(c => [c.value, c.label]);
+      if (s.optional) options.push(["", "(firmware default)"]);
+      let shown = values[s.macro] ?? "";
+      if (!options.some(o => o[0] === shown) && options.length) shown = options[0][0];
+      control.replaceChildren(...options.map(([v, l]) => el("option", { value: v }, l)));
+      control.value = shown;
+      // One option left is no choice at all.
+      row.hidden = options.length < 2;
+    });
+  } else if (s.type === "int") {
+    control = el("input", { type: "number", id, min: s.min, max: s.max, placeholder: s.suggested ?? (s.optional ? "not set" : ""),
+      oninput: e => set(e.target.value === "" ? (s.optional ? null : s.default) : Number(e.target.value)) });
+    control.value = current ?? s.suggested ?? "";
+    if (current == null && s.suggested != null) values[s.macro] = s.suggested;
+  } else if (s.type === "brightness") {
+    // Written as the firmware's 0-255 (255 = normal); shown as a percent.
+    const start = current != null && current < 255 ? current : (s.suggested ?? 128);
+    values[s.macro] = start;
+    const out = el("output");
+    const slider = el("input", { type: "range", id, min: 1, max: 100, oninput: e => {
+      out.textContent = e.target.value + "%"; set(Math.round(e.target.value * 255 / 100)); } });
+    slider.value = Math.round(start * 100 / 255);
+    out.textContent = slider.value + "%";
+    control = el("div", { class: "range" }, slider, out);
+  } else if (s.type === "color") {
+    const code = el("code", {}, current || "");
+    const picker = el("input", { type: "color", id, oninput: e => { const v = hexToRgb565(e.target.value); code.textContent = v; set(v); } });
+    picker.value = rgb565ToHex(current || s.default || "0x0000");
+    control = el("div", { class: "color" }, picker, code);
+  } else if (s.type === "timezone") {
+    control = el("input", { type: "text", id, autocomplete: "off", spellcheck: "false" });
+    control.value = current || "";
+    extra = el("div", { class: "suggest" });
+    let timer;
+    const look = () => {
+      const q = control.value.trim();
+      if (!q) { status.textContent = ""; extra.replaceChildren(); return; }
+      api("/api/timezones?q=" + encodeURIComponent(q)).then(({ data }) => {
+        if (control.value.trim() !== q) return;
+        extra.replaceChildren();
+        status.className = "status";
+        if (data.matches === null) { status.textContent = "Couldn't reach timezonedb.com to check it."; return; }
+        if (data.exact) {
+          status.className = "status ok"; status.textContent = "✓ " + data.exact;
+          if (data.exact !== q) { control.value = data.exact; set(data.exact); }
+          return;
+        }
+        if (!data.count) { status.className = "status bad"; status.textContent = "No timezone matches - try a big city nearby, or the country."; return; }
+        status.textContent = data.count > data.matches.length ? data.count + " match - keep typing, or pick one:" : "Pick one:";
+        extra.replaceChildren(...data.matches.map(z => el("button", { type: "button", onclick: () => {
+          control.value = z; set(z); look(); } }, z)));
+      });
+    };
+    control.addEventListener("input", () => { set(control.value.trim()); clearTimeout(timer); timer = setTimeout(look, 250); });
+    setTimeout(look, 0);
+  } else if (s.type === "location") {
+    control = el("input", { type: "text", id, autocomplete: "off" });
+    control.value = current || "";
+    let timer;
+    const check = () => {
+      const q = control.value.trim();
+      if (!q) { status.textContent = ""; return; }
+      status.className = "status"; status.textContent = "Checking...";
+      api("/api/location?q=" + encodeURIComponent(q)).then(({ data }) => {
+        if (control.value.trim() !== q) return;
+        if (data.status === "found") { status.className = "status ok"; status.textContent = "✓ " + data.resolved; }
+        else if (data.status === "unknown") { status.className = "status bad"; status.textContent = "visualcrossing.com doesn't know this place - try 'City, Region' or a postal code."; }
+        else { status.className = "status"; status.textContent = "Couldn't reach visualcrossing.com to check it."; }
+      });
+    };
+    control.addEventListener("input", () => { set(control.value.trim()); clearTimeout(timer); timer = setTimeout(check, 700); });
+    setTimeout(check, 0);
+  } else {
+    control = el("input", { type: "text", id, placeholder: s.optional ? "not set" : "",
+      oninput: e => set(e.target.value === "" && s.optional ? null : e.target.value) });
+    control.value = current ?? "";
+  }
+
+  const row = el("div", { class: "row" },
+    el("label", { for: id }, s.prompt), control,
+    s.help ? el("div", { class: "help" }, s.help) : null,
+    status, extra);
+  return row;
+}
+
+// A group: one checkbox that sets all of its settings, or leaves them all out.
+function groupRow(g) {
+  const id = "g" + (uid++);
+  const isOn = g.settings.every(s => values[s.macro] != null);
+  const box = el("input", { type: "checkbox", class: "toggle", id });
+  box.checked = isOn;
+  const body = el("div", { class: "group-body" }, g.settings.map(settingRow));
+  const remembered = {};
+  const apply = () => {
+    body.hidden = !box.checked;
+    for (const s of g.settings) {
+      if (box.checked) {
+        if (values[s.macro] == null) values[s.macro] = remembered[s.macro] ?? s.suggested ?? s.default;
+      } else {
+        if (values[s.macro] != null) remembered[s.macro] = values[s.macro];
+        values[s.macro] = null;
+      }
+    }
+  };
+  box.addEventListener("change", () => { apply(); changed(); });
+  apply();
+  return el("div", {},
+    el("div", { class: "row" }, el("label", { for: id }, g.prompt), box, g.help ? el("div", { class: "help" }, g.help) : null),
+    body);
+}
+
+function itemRow(item) { return item.type === "group" ? groupRow(item) : settingRow(item); }
+
+// A feature's own settings, with the advanced ones folded away.
+function settingsBlock(f) {
+  const items = (f.settings || []).filter(i => !i.askWhen && !i.derived);
+  const basic = items.filter(i => !i.advanced).map(itemRow);
+  const advanced = items.filter(i => i.advanced);
+  const block = el("div", {}, basic);
+  if (advanced.length) {
+    block.append(el("details", {},
+      el("summary", {}, "More " + (f.kind === "core" ? "device" : f.name) + " settings" + (f.advancedLabel ? " (" + f.advancedLabel + ")" : "")),
+      advanced.map(itemRow)));
+  }
+  return block;
+}
+
+// ---------- features
+function featureHead(f) {
+  const box = el("input", { type: "checkbox", "aria-label": "Build " + f.name });
+  box.checked = !!on[f.id];
+  box.addEventListener("change", () => { on[f.id] = box.checked; changed(); });
+  const size = sizeOf(f);
+  return el("label", { class: "feature-head" }, box,
+    el("div", {}, el("div", { class: "name" }, f.name), el("div", { class: "desc" }, f.description)),
+    size ? el("span", { class: "size" }, "about " + kb(size)) : null);
+}
+
+function childrenBlock(f) {
+  const kids = model.features.filter(c => c.parent === f.id);
+  if (!kids.length) return null;
+  const title = { control: "Controls", effect: "Effects", option: "Options" }[kids[0].kind] || "Includes";
+  const block = el("div", { class: "children" }, f.parent ? null : el("div", { class: "children-title" }, title));
+  for (const c of kids) {
+    const inner = childrenBlock(c);
+    block.append(featureHead(c));
+    if (inner) {
+      block.append(inner);
+      refreshers.push(() => { inner.hidden = !enabled(c.id); });
+    }
+  }
+  return block;
+}
+
+function widgetCard(f) {
+  const shared = el("div", { class: "shared" });
+  const body = el("div", { class: "body" }, childrenBlock(f), shared, settingsBlock(f));
+  refreshers.push(() => { body.hidden = !enabled(f.id); });
+  return el("div", { class: "panel widget", "data-id": f.id }, featureHead(f), body);
+}
+
+function build() {
+  const app = document.getElementById("app");
+  const core = model.features.find(f => f.kind === "core");
+  app.append(el("h2", {}, "Device"), el("div", { class: "panel" }, settingsBlock(core)));
+  app.append(el("h2", {}, "Widgets"));
+  const cards = {};
+  for (const f of model.features.filter(f => f.kind === "widget")) {
+    cards[f.id] = widgetCard(f);
+    app.append(cards[f.id]);
+  }
+  // Settings only something built needs (the weather location, say): shown under the first widget
+  // that turns on something needing them.
+  const parking = el("div", { hidden: true });
+  app.append(parking);
+  for (const s of (core.settings || []).filter(i => i.askWhen && !i.derived)) {
+    const row = itemRow(s);
+    parking.append(row);
+    refreshers.push(() => {
+      const users = model.features.filter(f => f.kind === "widget").map(f => f.id)
+        .filter(w => s.askWhen.some(id => enabled(id) && topWidget(id) === w));
+      (users.length ? cards[users[0]].querySelector(".shared") : parking).append(row);
+    });
+  }
+}
+
+// ---------- status: size, problems, notes
+let checkTimer;
+function changed() {
+  for (const r of refreshers) r();
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(check, 120);
+}
+
+function showStatus(st, extra) {
+  const total = model.appPartitionKb;
+  const pct = Math.round(100 * st.estimateKb / total);
+  document.getElementById("size").innerHTML = "";
+  document.getElementById("size").append("About " + kb(st.estimateKb) + " of " + kb(total) + " ",
+    el("small", {}, "(" + pct + "% of the space for firmware)"));
+  const meter = document.getElementById("meter");
+  meter.className = "meter" + (pct > 100 ? " bad" : pct > 95 ? " warn" : "");
+  meter.firstElementChild.style.width = Math.min(pct, 100) + "%";
+  const messages = document.getElementById("messages");
+  messages.replaceChildren(
+    ...(extra || []),
+    ...(pct > 100 ? [el("p", { class: "bad" }, "That won't fit - untick something.")] : pct > 95 ? [el("p", { class: "note" }, "Very close to full - it may not fit.")] : []),
+    ...st.problems.map(p => el("p", { class: "bad" }, p)),
+    ...st.notes.map(n => el("p", { class: "note" }, n)));
+  document.getElementById("write").disabled = st.problems.length > 0 || pct > 100;
+}
+
+function check() {
+  api("/api/check", { on, values }).then(({ data }) => showStatus(data));
+}
+
+document.getElementById("write").addEventListener("click", () => {
+  api("/api/write", { on, values }).then(({ ok, data }) => {
+    if (!ok) { showStatus({ estimateKb: 0, problems: data.problems || [data.error], notes: [] }); return; }
+    api("/api/check", { on, values }).then(r => showStatus(r.data, [
+      ...data.messages.map(m => el("p", { class: "ok" }, m)),
+      el("p", {}, "Next: build and flash with ", el("code", {}, "pio run -t upload"), ". Change anything and write again, or press Done.")]));
+    document.getElementById("done").hidden = false;
+  });
+});
+
+document.getElementById("done").addEventListener("click", () => {
+  api("/api/quit", {}).finally(() => {
+    document.body.innerHTML = "<main><h1>Setup closed</h1><p class='intro'>You can close this tab. Run <code>python setup/setup.py</code> again to change anything.</p></main>";
+  });
+});
+
+api("/api/model").then(({ ok, data }) => {
+  if (!ok) {
+    document.getElementById("app").append(el("div", { class: "panel fatal" }, "This page has to be opened from the link setup.py printed - run python setup/setup.py again."));
+    return;
+  }
+  model = data; on = data.on; values = data.values;
+  byId = Object.fromEntries(model.features.map(f => [f.id, f]));
+  if (data.source) document.getElementById("source").textContent = "Starting from " + data.source + ".";
+  document.getElementById("write").textContent = "Write " + data.target.split(/[\\/]/).pop();
+  build();
+  for (const r of refreshers) r();
+  showStatus(data.status);
+}).catch(() => {
+  document.getElementById("app").append(el("div", { class: "panel fatal" }, "Can't reach setup.py - is it still running? Start it again with python setup/setup.py."));
+});
+</script>
+</body>
+</html>

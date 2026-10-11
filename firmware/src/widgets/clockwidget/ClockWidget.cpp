@@ -66,8 +66,14 @@ void ClockWidget::displayAmPm(String &amPm, uint32_t color) {
     // I think this is related to the TTF cache
     // The problem disappears if we reload the font here
     if (CLOCK_FONT == TTF_Font::DSEG7) {
-        // We set a new font anyway
+        // DSEG7 has no M, so we set a new font anyway
+#if CLOCK_INCLUDE_DSEG14
         m_manager.setFont(TTF_Font::DSEG14);
+#else
+        // DSEG14 isn't built in (loading it would fail and crash), so fall back to the default font
+        m_manager.setFont(TTF_Font::NONE);
+        m_manager.setFont(DEFAULT_FONT);
+#endif
     } else {
         // Force reloading the font
         m_manager.setFont(TTF_Font::NONE);

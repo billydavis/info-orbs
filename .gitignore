@@ -15,6 +15,8 @@
 # Arduino libraries (if installed in the project directory)
 libraries/
 firmware/config/config.h
+firmware/config/config.h.bak
+firmware/config/setup.json
 .pio
 
 # VS Code
@@ -29,3 +31,4 @@ megalinter-reports/
 node_modules
 package.json
 package-lock.json
+__pycache__/

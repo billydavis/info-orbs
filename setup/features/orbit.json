@@ -1,0 +1,20 @@
+{
+  "id": "orbit",
+  "kind": "widget",
+  "order": 700,
+  "name": "OrbIt",
+  "description": "Each screen shows its own control, set from OrbIt Command Center or the REST API.",
+  "default": false,
+  "switch": {
+    "macro": "ORBIT_WIDGET_ENABLED",
+    "style": "flag"
+  },
+  "flashKb": 48,
+  "conflicts": [
+    {
+      "macro": "DISABLE_WEB_SERVER",
+      "value": true,
+      "message": "OrbIt is set up through the web server, so it can't be built with the web server turned off."
+    }
+  ]
+}

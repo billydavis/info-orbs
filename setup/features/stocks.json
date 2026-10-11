@@ -1,0 +1,22 @@
+{
+  "id": "stocks",
+  "kind": "widget",
+  "order": 300,
+  "name": "Stocks",
+  "description": "Five stock, crypto or currency prices, one per screen.",
+  "default": false,
+  "switch": {
+    "macro": "STOCK_TICKER_LIST",
+    "style": "value"
+  },
+  "flashKb": 5,
+  "settings": [
+    {
+      "macro": "STOCK_TICKER_LIST",
+      "type": "string",
+      "prompt": "Five symbols, comma separated",
+      "help": "Stocks (SPY), crypto (BTC/USD) or forex (USD/CAD). Add &country=Canada to pick an exchange.",
+      "default": "BTC/USD,USD/CAD,XEQT,SPY,APC&country=Germany"
+    }
+  ]
+}

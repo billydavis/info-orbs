@@ -69,7 +69,15 @@ While built on Arduino, the codebase for this project has been built using the  
 Once you have platform.io installed and configured in VSC, open the `info-orbs.code-workspace` to being the setup process.
 
 **Project Configuration**
-Before compiling/flashing, you'll need to navigate into `firmware` >>`config` directory and make a copy of the file `config.h.template` in the same folder and rename that copy to `config.h` **THIS STEP IS CRITICAL AND YOUR CODE WILL NOT COMPILE IF YOU DONT COPY THIS FILE AND CHANGE THE NAME**
+The easiest way is the setup script. From the project folder, run:
+
+```
+python setup/setup.py
+```
+
+It opens a setup page in your browser (served from your own computer, nothing to install) where you pick what you want on your orbs - which widgets, clock faces and OrbIt controls, your timezone and weather location - and it writes `firmware/config/config.h` for you. Only what you tick is built into the firmware, and the page shows how much flash your choices take as you go. Prefer answering questions in the terminal? Use `python setup/setup.py --terminal`. Run it again any time to change something: it remembers your answers (in `firmware/config/setup.json`) and keeps your previous file as `config.h.bak`. `python setup/setup.py --list-presets` lists the starting points, and `--preset <name> --yes` writes one without asking anything.
+
+If you'd rather set things up by hand: before compiling/flashing, you'll need to navigate into `firmware` >>`config` directory and make a copy of the file `config.h.template` in the same folder and rename that copy to `config.h` **THIS STEP IS CRITICAL AND YOUR CODE WILL NOT COMPILE IF YOU DONT COPY THIS FILE AND CHANGE THE NAME**
 
 Lastly, open up the `config.h` file you just copied/renamed and adjust the parameters in this file to configure the orbs to your personal needs. You can find more details about each configuration option below.
 

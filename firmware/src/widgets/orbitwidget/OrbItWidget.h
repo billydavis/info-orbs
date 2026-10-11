@@ -151,11 +151,14 @@ private:
     void handlePostScreen(int index);
     void handleRefreshScreen(int index);
     void handleWeatherPreview();
+    void handleGetCapabilities();
     // screenIndex is used only by the 'countdown' control, to validate an action (e.g. 'pause')
     // against that specific screen's current live CountdownRuntime state - every other control
     // ignores it. -1 means "no specific screen" (used by loadPersistedLayout()'s restore path,
     // which never reaches the countdown validation branch - see its own countdown special-case).
-    bool parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &errorMessage, int screenIndex = -1);
+    // errorStatus, if given, gets the HTTP status a failure should be reported with: 501 for a
+    // control (or screensaver effect) this firmware was built without, 400 for anything else.
+    bool parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &errorMessage, int screenIndex = -1, int *errorStatus = nullptr);
     void slotToJson(int index, const OrbItSlot &slot, JsonObject out);
     void sendJson(int code, const JsonDocument &doc);
     void sendError(int code, const String &message);
@@ -235,6 +238,11 @@ private:
     WebServer &m_server;
 
     Preferences m_preferences;
+    // A screen whose saved layout entry names a control this firmware was built without: the entry
+    // as it was saved, so persistLayout() keeps writing it back instead of losing it, while the
+    // screen itself shows blank. Cleared once the screen is given something else.
+    String m_unbuiltSaved[NUM_SCREENS];
+
     // The layout JSON as it currently sits in NVS, so persistLayout() can skip the flash write when
     // nothing it saves has changed.
     String m_savedLayout;

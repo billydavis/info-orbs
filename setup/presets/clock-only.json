@@ -1,0 +1,9 @@
+{
+  "id": "clock-only",
+  "order": 1,
+  "name": "Clock only",
+  "description": "The original clock and nothing else - the smallest build.",
+  "features": [
+    "clock"
+  ]
+}

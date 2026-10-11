@@ -16,8 +16,22 @@ enum class ScreensaverEffect {
     RADAR,
 };
 
+// The first effect this firmware was built with (see the ORBIT_EFFECT_* switches in config.h) -
+// what a screensaver shows when it isn't told which, and where a cycle starts.
+#if ORBIT_EFFECT_ASTEROIDS
+    #define ORBIT_FIRST_EFFECT ScreensaverEffect::ASTEROIDS
+#elif ORBIT_EFFECT_MATRIX
+    #define ORBIT_FIRST_EFFECT ScreensaverEffect::MATRIX
+#elif ORBIT_EFFECT_WARP
+    #define ORBIT_FIRST_EFFECT ScreensaverEffect::WARP
+#elif ORBIT_EFFECT_ORRERY
+    #define ORBIT_FIRST_EFFECT ScreensaverEffect::ORRERY
+#else
+    #define ORBIT_FIRST_EFFECT ScreensaverEffect::RADAR
+#endif
+
 struct ScreensaverConfig {
-    ScreensaverEffect effect = ScreensaverEffect::ASTEROIDS;
+    ScreensaverEffect effect = ORBIT_FIRST_EFFECT;
     // true = ignore `effect` and show each effect in turn, cycleMs at a time.
     bool cycle = false;
     unsigned long cycleMs = 300000;
@@ -56,9 +70,14 @@ public:
     // animation frame and the effect only repaints what moved.
     void draw(int displayIndex, const ScreensaverConfig &config, ScreensaverState &state, bool fullRedraw);
 
-    // The names orbit-api uses for params.effect.
+    // The names orbit-api uses for params.effect. effectFromName() knows every effect, built or not.
     static const char *effectName(ScreensaverEffect effect);
     static bool effectFromName(const String &name, ScreensaverEffect &out);
+
+    // Every effect, in cycle order.
+    static const ScreensaverEffect ALL_EFFECTS[(int) ScreensaverEffect::RADAR + 1];
+    // Whether this firmware was built with an effect - see the ORBIT_EFFECT_* switches in config.h.
+    static bool effectBuilt(ScreensaverEffect effect);
 
 private:
     ScreenManager &m_manager;

@@ -1,0 +1,47 @@
+{
+  "id": "mqtt",
+  "kind": "widget",
+  "order": 600,
+  "name": "MQTT",
+  "description": "Screens set up and fed over MQTT, e.g. from Home Assistant.",
+  "default": false,
+  "switch": {
+    "macro": "MQTT_WIDGET_HOST",
+    "style": "value"
+  },
+  "flashKb": 16,
+  "settings": [
+    {
+      "macro": "MQTT_WIDGET_HOST",
+      "type": "string",
+      "prompt": "Broker host",
+      "default": "192.168.3.40"
+    },
+    {
+      "macro": "MQTT_WIDGET_PORT",
+      "type": "int",
+      "prompt": "Broker port",
+      "default": 1883,
+      "min": 1,
+      "max": 65535
+    },
+    {
+      "macro": "MQTT_SETUP_TOPIC",
+      "type": "string",
+      "prompt": "Setup topic",
+      "default": "info-orbs/setup/orbs"
+    },
+    {
+      "macro": "MQTT_WIDGET_USER",
+      "type": "string",
+      "prompt": "User (blank if not needed)",
+      "default": ""
+    },
+    {
+      "macro": "MQTT_WIDGET_PASS",
+      "type": "string",
+      "prompt": "Password (blank if not needed)",
+      "default": ""
+    }
+  ]
+}

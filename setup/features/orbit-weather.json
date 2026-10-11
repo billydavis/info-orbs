@@ -1,0 +1,17 @@
+{
+  "id": "orbit-weather",
+  "kind": "control",
+  "parent": "orbit",
+  "order": 760,
+  "name": "Weather",
+  "description": "Weather icon, temperature or conditions, each screen for its own location.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_CONTROL_WEATHER",
+    "style": "bool"
+  },
+  "flashKb": 4,
+  "sharedKb": {
+    "weather icons": 33
+  }
+}

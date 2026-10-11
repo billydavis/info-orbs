@@ -1,0 +1,14 @@
+{
+  "id": "orbit-effect-matrix",
+  "kind": "effect",
+  "parent": "orbit-screensaver",
+  "order": 792,
+  "name": "Matrix",
+  "description": "Falling digital rain.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_EFFECT_MATRIX",
+    "style": "bool"
+  },
+  "flashKb": 2
+}

@@ -1,0 +1,19 @@
+{
+  "id": "orbit-desk",
+  "order": 2,
+  "name": "OrbIt desk",
+  "description": "The clock plus OrbIt with the controls a desk setup uses: time, analog clock, gauge, system monitor, countdown, weather and two screensaver effects.",
+  "features": [
+    "clock",
+    "orbit",
+    "orbit-time",
+    "orbit-analog-clock",
+    "orbit-gauge",
+    "orbit-sys-monitor",
+    "orbit-countdown",
+    "orbit-weather",
+    "orbit-screensaver",
+    "orbit-effect-asteroids",
+    "orbit-effect-radar"
+  ]
+}

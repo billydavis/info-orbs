@@ -259,6 +259,27 @@ Ticker slots only — immediately re-fetches that slot's price from twelvedata, 
 
 Repeatedly hammering this endpoint can still blow through twelvedata's 800-calls/day cap — that's on the caller, not something OrbIt tracks or throttles for you.
 
+### `GET /orbit/api/v1/capabilities`
+
+What this firmware was built with. Controls and screensaver effects are build-time choices (the `ORBIT_CONTROL_*` and `ORBIT_EFFECT_*` switches in `config.h`, usually set with `setup/setup.py`), so a client should read this once on connect and only offer what's listed:
+
+```json
+{
+  "controls": ["blank", "time", "analogClock", "gauge", "sysMonitor", "screensaver", "countdown", "weather"],
+  "screensaverEffects": ["asteroids", "radar"]
+}
+```
+
+`blank` is always built. `screensaverEffects` is only present when `screensaver` is in `controls`. Firmware from before this endpoint answers `404`; assume everything in the control table above is built.
+
+What leaving something out changes:
+
+- Writing a control (or screensaver effect) that isn't built is a `501` with an error saying so, instead of the `400` an unknown name gets.
+- `cycle` only rotates through the effects that are built.
+- A compile-time default screen whose control isn't built starts out `blank`.
+- `POST /screens/{n}/refresh` only exists with `ticker` built, and `POST /weather/preview` only with `weather` built.
+- A screen whose saved layout names a control this build doesn't have shows `blank`, and `GET` reports it as `blank`, but its saved entry is kept: other writes don't lose it, and flashing a build with that control again brings the screen back as it was. Writing anything to that screen replaces it.
+
 ### `POST /orbit/api/v1/weather/preview`
 
 Shows made-up weather readings in place of the fetched ones, for checking how a `weather` screen looks with values the real weather won't produce on demand — a three-digit temperature, a negative one. Body: a JSON object with any of `temperature`, `high` and `low` (numbers, in the device's configured units); the ones left out keep their current value.
@@ -288,6 +309,7 @@ All of the following are rejected with a `4xx` status and a JSON error body — 
 - `params` missing a field the given `control` requires, or a field of the wrong type → `400`
 - A color param that isn't an RGB565 integer or a known color name (see "Colors") → `400`
 - Malformed JSON body → `400`
+- `control` (or a screensaver `params.effect`) known but not built into this firmware → `501` (see `GET /capabilities`)
 
 Error body shape:
 

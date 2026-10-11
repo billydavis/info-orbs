@@ -1,0 +1,188 @@
+{
+  "id": "core",
+  "kind": "core",
+  "order": 0,
+  "name": "Device",
+  "description": "Settings every build needs: time, language, units and network.",
+  "flashKb": 0,
+  "settings": [
+    {
+      "macro": "TIMEZONE_API_LOCATION",
+      "type": "timezone",
+      "prompt": "Timezone",
+      "help": "A zone name such as America/Vancouver. Type a city or country to search the list.",
+      "default": "America/Vancouver"
+    },
+    {
+      "macro": "FORMAT_24_HOUR",
+      "type": "bool",
+      "prompt": "Use 24-hour time",
+      "default": false
+    },
+    {
+      "macro": "LOCALE",
+      "type": "choice",
+      "prompt": "Language for month and weekday names",
+      "default": "EN",
+      "choices": [
+        {
+          "value": "EN",
+          "label": "English"
+        },
+        {
+          "value": "DE",
+          "label": "German"
+        },
+        {
+          "value": "FR",
+          "label": "French"
+        }
+      ]
+    },
+    {
+      "macro": "WEATHER_UNITS_METRIC",
+      "type": "flag",
+      "prompt": "Use metric units (Celsius, day-month dates)",
+      "default": true
+    },
+    {
+      "macro": "WEATHER_LOCATION",
+      "type": "location",
+      "prompt": "Weather location",
+      "help": "A city and region, postal code or lat,lon - anything visualcrossing.com understands.",
+      "default": "Victoria, BC",
+      "askWhen": [
+        "weather",
+        "orbit-weather"
+      ]
+    },
+    {
+      "macro": "WEATHER_SCREEN_MODE",
+      "type": "choice",
+      "prompt": "Weather colours",
+      "default": "Dark",
+      "askWhen": [
+        "weather",
+        "orbit-weather"
+      ],
+      "choices": [
+        {
+          "value": "Dark",
+          "label": "Dark background"
+        },
+        {
+          "value": "Light",
+          "label": "Light background (+31KB of icons)"
+        }
+      ]
+    },
+    {
+      "macro": "WEATHER_INCLUDE_LIGHT_ICONS",
+      "type": "bool",
+      "prompt": "Include light-mode weather icons",
+      "derived": {
+        "from": "WEATHER_SCREEN_MODE",
+        "equals": "Light"
+      },
+      "flashKb": 31,
+      "askWhen": [
+        "weather",
+        "orbit-weather"
+      ]
+    },
+    {
+      "macro": "INVERTED_ORBS",
+      "type": "bool",
+      "prompt": "Orbs mounted upside down",
+      "default": false,
+      "advanced": true
+    },
+    {
+      "macro": "WIDGET_CYCLE_DELAY",
+      "type": "int",
+      "prompt": "Switch widgets automatically every N seconds (0 = never)",
+      "default": 0,
+      "min": 0,
+      "advanced": true
+    },
+    {
+      "type": "group",
+      "prompt": "Dim the screens at night",
+      "help": "The screens stay at full brightness unless you set a dim period.",
+      "advanced": true,
+      "settings": [
+        {
+          "macro": "DIM_START_HOUR",
+          "type": "int",
+          "prompt": "Dim from this hour (0-23)",
+          "min": 0,
+          "max": 23,
+          "suggested": 22
+        },
+        {
+          "macro": "DIM_END_HOUR",
+          "type": "int",
+          "prompt": "Back to full brightness at this hour (0-23)",
+          "min": 0,
+          "max": 23,
+          "suggested": 7
+        },
+        {
+          "macro": "DIM_BRIGHTNESS",
+          "type": "brightness",
+          "prompt": "Brightness while dimmed, in percent (100 = normal)",
+          "min": 1,
+          "max": 255,
+          "suggested": 128,
+          "comment": "Brightness while dimmed (0-255, 255 = normal)"
+        }
+      ]
+    },
+    {
+      "macro": "WIFI_SSID",
+      "type": "string",
+      "prompt": "Fallback Wi-Fi network name (blank = use the setup portal)",
+      "optional": true,
+      "advanced": true
+    },
+    {
+      "macro": "WIFI_PASS",
+      "type": "string",
+      "prompt": "Fallback Wi-Fi password",
+      "optional": true,
+      "advanced": true
+    },
+    {
+      "macro": "MDNS_HOSTNAME",
+      "type": "string",
+      "prompt": "Network name, reachable as <name>.local (blank = info-orbs-XX)",
+      "optional": true,
+      "advanced": true
+    },
+    {
+      "macro": "DISABLE_WEB_SERVER",
+      "type": "flag",
+      "prompt": "Turn off the web page and REST API",
+      "default": false,
+      "advanced": true
+    },
+    {
+      "macro": "DEFAULT_FONT",
+      "type": "choice",
+      "prompt": "Default font",
+      "optional": true,
+      "advanced": true,
+      "choices": [
+        {
+          "value": "ROBOTO_REGULAR",
+          "label": "Roboto"
+        },
+        {
+          "value": "FINAL_FRONTIER",
+          "label": "Final Frontier"
+        }
+      ]
+    }
+  ],
+  "advancedLabel": "night dimming, upside-down orbs, auto-switching widgets, Wi-Fi fallback, network name, web server, font"
+}

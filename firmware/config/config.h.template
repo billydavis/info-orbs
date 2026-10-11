@@ -2,6 +2,8 @@
 #define CONFIG_H
 
 // ============= CONFIGURE THESE FIELDS BEFORE FLASHING ====================================================
+// The easy way: run `python setup/setup.py`, which asks what you want and writes config.h for you.
+// Anything switched off here (or there) is left out of the firmware, leaving more flash free.
 
 // MAIN CONFIGURATION
 #define TIMEZONE_API_LOCATION "America/Vancouver" // Use timezone from this list: https://timezonedb.com/time-zones
@@ -15,6 +17,7 @@
 //#define DIM_BRIGHTNESS 128 // Dim brightness (0-255)
 
 // CLOCK CONFIGURATION
+#define USE_CLOCK_WIDGET true           // Set to false to leave the clock widget out
 #define FORMAT_24_HOUR false            // Toggle 24 hour clock vs 12 hour clock, change between true/false
 #define SHOW_AM_PM_INDICATOR false      // AM/PM on the clock if using 12 hour
 #define SHOW_SECOND_TICKS true          // Ticking indicator on the centre clock
@@ -25,15 +28,13 @@
 #define USE_CLOCK_CUSTOM false          // Set to true to enable custom clock (see images/ClockWidget/custom/README.md)
 #define DEFAULT_CLOCK ClockType::NORMAL // Set the default clock face: ClockType::NORMAL, ClockType::NIXIE or ClockType::CUSTOM
 //#define CLOCK_FONT DSEG7              // Define clock font (defaults to DSEG7, you can also try DSEG14 or FINAL_FRONTIER)
-// The DSEG14 font (~70KB) and light-mode weather icons (~31KB) are left out of platformio.ini's
-// board_build.embed_files by default. To use one, set its flag to true AND uncomment its lines there,
-// otherwise the build fails to link.
-#define CLOCK_INCLUDE_DSEG14 false // Set to true if you ever set CLOCK_FONT to DSEG14
+#define CLOCK_INCLUDE_DSEG14 false // Set to true if you ever set CLOCK_FONT to DSEG14 (~70KB)
 
 // WEATHER CONFIGURATION
+#define USE_WEATHER_WIDGET true         // Set to false to leave the weather widget out (OrbIt's weather control still uses the settings below)
 #define WEATHER_LOCATION "Victoria, BC" // City/state for the weather, look it up on https://www.visualcrossing.com/weather-data
 #define WEATHER_SCREEN_MODE Dark        // Can be either Light or Dark
-#define WEATHER_INCLUDE_LIGHT_ICONS false // Set to true to use WEATHER_SCREEN_MODE Light (see note above)
+#define WEATHER_INCLUDE_LIGHT_ICONS false // Set to true to use WEATHER_SCREEN_MODE Light (~31KB)
 #define WEATHER_UNITS_METRIC            // Comment this line out (or delete it) if you want imperial units for the weather
 
 // STOCK TICKER CONFIGURATION
@@ -54,11 +55,25 @@
 //#define MQTT_WIDGET_PASS "mqttuser" // Leave empty if authentication is not required
 
 // ORBIT CONFIGURATION (experimental)
-// Treats each screen as an independently assignable slot (time/weather/ticker) instead of one
-// widget owning all 5 screens. Slot assignment is compile-time only for now (see
-// firmware/src/widgets/orbitwidget/OrbItWidget.cpp) - a REST-configurable version is planned,
-// see firmware/src/widgets/orbitwidget/docs/orbit-api.md.
+// Treats each screen as an independently assignable slot instead of one widget owning all 5 screens,
+// set up at runtime through its REST API - see firmware/src/widgets/orbitwidget/docs/orbit-api.md.
 #define ORBIT_WIDGET_ENABLED
+// Which OrbIt controls to build - set any you don't use to false to leave them out.
+#define ORBIT_CONTROL_TIME true
+#define ORBIT_CONTROL_ANALOG_CLOCK true
+#define ORBIT_CONTROL_GAUGE true
+#define ORBIT_CONTROL_SYS_MONITOR true
+#define ORBIT_CONTROL_COUNTDOWN true
+#define ORBIT_CONTROL_WEATHER true
+#define ORBIT_CONTROL_TICKER true
+#define ORBIT_CONTROL_CUSTOM true      // Custom drawings (also the only user of the LittleFS filesystem, ~30KB)
+#define ORBIT_CONTROL_SCREENSAVER true
+// Which screensaver effects to build (at least one, if the screensaver is built)
+#define ORBIT_EFFECT_ASTEROIDS true
+#define ORBIT_EFFECT_MATRIX true
+#define ORBIT_EFFECT_WARP true
+#define ORBIT_EFFECT_ORRERY true
+#define ORBIT_EFFECT_RADAR true
 
 // WIFI CONFIGURATION
 // Normally WiFi should be configured using a smartphone or computer to connect to the Info-Orbs

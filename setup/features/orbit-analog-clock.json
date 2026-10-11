@@ -1,0 +1,14 @@
+{
+  "id": "orbit-analog-clock",
+  "kind": "control",
+  "parent": "orbit",
+  "order": 720,
+  "name": "Analog clock",
+  "description": "A clock face with hour, minute and second hands.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_CONTROL_ANALOG_CLOCK",
+    "style": "bool"
+  },
+  "flashKb": 1
+}

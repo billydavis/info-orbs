@@ -4,13 +4,18 @@
 #include "Utils.h"
 #include "WebService.h"
 #include "WidgetSet.h"
-#include "clockwidget/ClockWidget.h"
 #include "config_helper.h"
 #include "icons.h"
-#include "weatherwidget/WeatherWidget.h"
 #include "webdatawidget/WebDataWidget.h"
 #include "wifiwidget/WifiWidget.h"
 #include <Arduino.h>
+
+#if USE_CLOCK_WIDGET
+    #include "clockwidget/ClockWidget.h"
+#endif
+#if USE_WEATHER_WIDGET
+    #include "weatherwidget/WeatherWidget.h"
+#endif
 
 #ifdef STOCK_TICKER_LIST
     #include "stockwidget/StockWidget.h"
@@ -23,6 +28,10 @@
 #endif
 #ifdef ORBIT_WIDGET_ENABLED
     #include "orbitwidget/OrbItWidget.h"
+#endif
+
+#if !USE_CLOCK_WIDGET && !USE_WEATHER_WIDGET && !defined(STOCK_TICKER_LIST) && !defined(PARQET_PORTFOLIO_ID) && !defined(WEB_DATA_WIDGET_URL) && !defined(WEB_DATA_STOCK_WIDGET_URL) && !defined(MQTT_WIDGET_HOST) && !defined(ORBIT_WIDGET_ENABLED)
+    #error "No widgets are enabled in config.h - enable at least one (setup/setup.py won't let you build without one)"
 #endif
 
 TFT_eSPI tft = TFT_eSPI();
@@ -127,14 +136,18 @@ void setup() {
 
     globalTime = GlobalTime::getInstance();
 
+#if USE_CLOCK_WIDGET
     widgetSet->add(new ClockWidget(*sm));
+#endif
 #ifdef PARQET_PORTFOLIO_ID
     widgetSet->add(new ParqetWidget(*sm));
 #endif
 #ifdef STOCK_TICKER_LIST
     widgetSet->add(new StockWidget(*sm));
 #endif
+#if USE_WEATHER_WIDGET
     widgetSet->add(new WeatherWidget(*sm));
+#endif
 #ifdef WEB_DATA_WIDGET_URL
     widgetSet->add(new WebDataWidget(*sm, WEB_DATA_WIDGET_URL));
 #endif

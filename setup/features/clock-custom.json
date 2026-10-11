@@ -1,0 +1,14 @@
+{
+  "id": "clock-custom",
+  "kind": "option",
+  "parent": "clock",
+  "order": 120,
+  "name": "Custom face",
+  "description": "Your own digit images from images/ClockWidget/custom (see the README there).",
+  "default": false,
+  "switch": {
+    "macro": "USE_CLOCK_CUSTOM",
+    "style": "bool"
+  },
+  "flashKb": 287
+}

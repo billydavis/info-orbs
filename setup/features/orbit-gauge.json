@@ -1,0 +1,14 @@
+{
+  "id": "orbit-gauge",
+  "kind": "control",
+  "parent": "orbit",
+  "order": 730,
+  "name": "Gauge",
+  "description": "A ring or dial showing any number, such as CPU load from Command Center.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_CONTROL_GAUGE",
+    "style": "bool"
+  },
+  "flashKb": 2
+}

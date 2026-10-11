@@ -1,0 +1,17 @@
+{
+  "id": "orbit-custom",
+  "kind": "control",
+  "parent": "orbit",
+  "order": 780,
+  "name": "Custom drawing",
+  "description": "Text and shapes sent as JSON.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_CONTROL_CUSTOM",
+    "style": "bool"
+  },
+  "flashKb": 33,
+  "sharedKb": {
+    "web data drawing": 14
+  }
+}

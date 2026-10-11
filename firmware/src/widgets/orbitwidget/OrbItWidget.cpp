@@ -1,175 +1,229 @@
 #include "OrbItWidget.h"
 
 #include "config_helper.h"
-#include <LittleFS.h>
+#if ORBIT_CONTROL_CUSTOM
+    #include <LittleFS.h>
+#endif
 
 #ifdef DISABLE_WEB_SERVER
     #error "The OrbIt widget is configured through orbit-api, so it needs the web server - remove DISABLE_WEB_SERVER or ORBIT_WIDGET_ENABLED from config.h"
 #endif
 
 namespace {
-const char *API_BASE = "/orbit/api/v1/screens";
-const char *WEATHER_PREVIEW_URI = "/orbit/api/v1/weather/preview";
+    const char *API_BASE = "/orbit/api/v1/screens";
+    const char *WEATHER_PREVIEW_URI = "/orbit/api/v1/weather/preview";
+    const char *CAPABILITIES_URI = "/orbit/api/v1/capabilities";
 
-const char *NVS_NAMESPACE = "orbit";
-const char *NVS_LAYOUT_KEY = "layout";
-const char *NOT_SAVED_WARNING = "applied, but it could not be saved - it will not survive a reboot";
+    const char *NVS_NAMESPACE = "orbit";
+    const char *NVS_LAYOUT_KEY = "layout";
+    const char *NOT_SAVED_WARNING = "applied, but it could not be saved - it will not survive a reboot";
 
-// Each custom drawing is saved as its own file on the LittleFS data partition rather than in NVS
-// with the rest of the layout. A drawing can run to 10KB or more, and the 20KB NVS partition -
-// shared with WiFi credentials and everything else - has only about 8KB to spare: measured on a
-// real device, an 8KB drawing left too little room to rewrite even the layout itself. Keeping
-// drawings out of the layout also means one is only written to flash when it actually changes,
-// not on every write to any screen (e.g. a sysMonitor being fed live values).
-String drawingPath(int index) {
-    return "/orbit-draw" + String(index) + ".json";
-}
+#if ORBIT_CONTROL_CUSTOM
+    // Each custom drawing is saved as its own file on the LittleFS data partition rather than in NVS
+    // with the rest of the layout. A drawing can run to 10KB or more, and the 20KB NVS partition -
+    // shared with WiFi credentials and everything else - has only about 8KB to spare: measured on a
+    // real device, an 8KB drawing left too little room to rewrite even the layout itself. Keeping
+    // drawings out of the layout also means one is only written to flash when it actually changes,
+    // not on every write to any screen (e.g. a sysMonitor being fed live values).
+    String drawingPath(int index) {
+        return "/orbit-draw" + String(index) + ".json";
+    }
 
-// Mounts the data partition on first use, formatting it if it has never held a filesystem.
-bool mountDrawingStore() {
-    static bool mounted = false;
-    if (!mounted) {
-        mounted = LittleFS.begin(true);
+    // Mounts the data partition on first use, formatting it if it has never held a filesystem.
+    bool mountDrawingStore() {
+        static bool mounted = false;
         if (!mounted) {
-            Serial.println("OrbIt: unable to mount LittleFS - custom drawings can't be saved or restored");
+            mounted = LittleFS.begin(true);
+            if (!mounted) {
+                Serial.println("OrbIt: unable to mount LittleFS - custom drawings can't be saved or restored");
+            }
         }
+        return mounted;
     }
-    return mounted;
-}
+#endif
 
-// twelvedata's free tier is 8 calls/minute and 800 calls/day (verified against
-// https://twelvedata.com/pricing) - the daily cap, not the per-minute one, is what actually
-// constrains a ticker slot meant to poll continuously: at 800/day, one ticker calling forever can
-// only average one call every ~108s. A 5-minute (300s) floor keeps a single continuously-polling
-// ticker slot well under that (288 calls/day) with headroom for a second slot before the daily cap
-// becomes a real risk - orbit-api deliberately does not try to track/divide the shared daily budget
-// across slots itself (that's a bigger feature); if you configure several screens as tickers, it's
-// on you to keep the combined polling reasonable.
-const unsigned long MIN_TICKER_POLL_INTERVAL_MS = 300000;
+    // twelvedata's free tier is 8 calls/minute and 800 calls/day (verified against
+    // https://twelvedata.com/pricing) - the daily cap, not the per-minute one, is what actually
+    // constrains a ticker slot meant to poll continuously: at 800/day, one ticker calling forever can
+    // only average one call every ~108s. A 5-minute (300s) floor keeps a single continuously-polling
+    // ticker slot well under that (288 calls/day) with headroom for a second slot before the daily cap
+    // becomes a real risk - orbit-api deliberately does not try to track/divide the shared daily budget
+    // across slots itself (that's a bigger feature); if you configure several screens as tickers, it's
+    // on you to keep the combined polling reasonable.
+    const unsigned long MIN_TICKER_POLL_INTERVAL_MS = 300000;
 
-// Plenty for "City, Region, Country" or a pair of coordinates, and keeps the saved layout small.
-const unsigned int MAX_WEATHER_LOCATION_LENGTH = 64;
+    // Plenty for "City, Region, Country" or a pair of coordinates, and keeps the saved layout small.
+    const unsigned int MAX_WEATHER_LOCATION_LENGTH = 64;
 
-// How long a cycling screensaver may stay on each effect: long enough to actually watch one, and
-// short enough that the millisecond count can't overflow.
-const long MIN_SCREENSAVER_CYCLE_SECONDS = 30;
-const long MAX_SCREENSAVER_CYCLE_SECONDS = 86400;
+    // How long a cycling screensaver may stay on each effect: long enough to actually watch one, and
+    // short enough that the millisecond count can't overflow.
+    const long MIN_SCREENSAVER_CYCLE_SECONDS = 30;
+    const long MAX_SCREENSAVER_CYCLE_SECONDS = 86400;
 
-// Reads one optional color param. The wire format is the RGB565 integer slotToJson() reports, so
-// whatever a GET returns can be sent straight back - which is also what this widget does to itself
-// when it restores the saved layout at boot or a countdown's previous control. A color name is
-// accepted too, as a convenience for hand-written requests. An omitted (or null, or "") param
-// leaves `out` at whatever default the caller initialized it to; anything else is an error rather
-// than a silent fallback, so a typo can't quietly turn a color black.
-bool parseColorParam(JsonVariantConst value, const char *name, uint32_t &out, String &errorMessage) {
-    if (value.isNull()) {
-        return true;
-    }
-    if (value.is<uint16_t>()) {
-        out = value.as<uint16_t>();
-        return true;
-    }
-    if (value.is<const char *>()) {
-        // Older clients sent "" for a color they had nothing to say about - same as omitting it.
-        if (value.as<String>().length() == 0) {
+    // Reads one optional color param. The wire format is the RGB565 integer slotToJson() reports, so
+    // whatever a GET returns can be sent straight back - which is also what this widget does to itself
+    // when it restores the saved layout at boot or a countdown's previous control. A color name is
+    // accepted too, as a convenience for hand-written requests. An omitted (or null, or "") param
+    // leaves `out` at whatever default the caller initialized it to; anything else is an error rather
+    // than a silent fallback, so a typo can't quietly turn a color black.
+    bool parseColorParam(JsonVariantConst value, const char *name, uint32_t &out, String &errorMessage) {
+        if (value.isNull()) {
             return true;
         }
-        uint16_t named;
-        if (Utils::tryStringToColor(value.as<String>(), named)) {
-            out = named;
+        if (value.is<uint16_t>()) {
+            out = value.as<uint16_t>();
             return true;
         }
-        errorMessage = "unknown color name '" + value.as<String>() + "' for params." + name;
+        if (value.is<const char *>()) {
+            // Older clients sent "" for a color they had nothing to say about - same as omitting it.
+            if (value.as<String>().length() == 0) {
+                return true;
+            }
+            uint16_t named;
+            if (Utils::tryStringToColor(value.as<String>(), named)) {
+                out = named;
+                return true;
+            }
+            errorMessage = "unknown color name '" + value.as<String>() + "' for params." + name;
+            return false;
+        }
+        errorMessage = String("params.") + name + " must be an RGB565 integer (0-65535) or a color name";
         return false;
     }
-    errorMessage = String("params.") + name + " must be an RGB565 integer (0-65535) or a color name";
-    return false;
-}
 
-// The location a weather slot shows: its own params.location, or WEATHER_LOCATION from config.h.
-// The config value goes into the request as written, as it always has; one given through the API
-// is percent-encoded, since it can hold anything.
-String weatherLocationOf(const OrbItSlot &slot) {
-    if (slot.weatherLocation.length() == 0) {
-        return WEATHER_LOCATION;
+    // The location a weather slot shows: its own params.location, or WEATHER_LOCATION from config.h.
+    // The config value goes into the request as written, as it always has; one given through the API
+    // is percent-encoded, since it can hold anything.
+    String weatherLocationOf(const OrbItSlot &slot) {
+        if (slot.weatherLocation.length() == 0) {
+            return WEATHER_LOCATION;
+        }
+        String encoded;
+        for (size_t i = 0; i < slot.weatherLocation.length(); i++) {
+            char c = slot.weatherLocation[i];
+            if (isalnum((unsigned char) c) || c == '-' || c == '_' || c == '.' || c == '~' || c == ',') {
+                encoded += c;
+            } else {
+                char hex[4];
+                snprintf(hex, sizeof(hex), "%%%02X", (unsigned char) c);
+                encoded += hex;
+            }
+        }
+        return encoded;
     }
-    String encoded;
-    for (size_t i = 0; i < slot.weatherLocation.length(); i++) {
-        char c = slot.weatherLocation[i];
-        if (isalnum((unsigned char) c) || c == '-' || c == '_' || c == '.' || c == '~' || c == ',') {
-            encoded += c;
-        } else {
-            char hex[4];
-            snprintf(hex, sizeof(hex), "%%%02X", (unsigned char) c);
-            encoded += hex;
+
+    // Every control, in the order GET /capabilities lists them.
+    const OrbItSource ALL_SOURCES[] = {OrbItSource::BLANK, OrbItSource::TIME, OrbItSource::ANALOG_CLOCK, OrbItSource::GAUGE, OrbItSource::SYS_MONITOR, OrbItSource::SCREENSAVER, OrbItSource::COUNTDOWN, OrbItSource::WEATHER, OrbItSource::TICKER, OrbItSource::CUSTOM};
+
+    // Whether this firmware was built with a control - see the ORBIT_CONTROL_* switches in config.h. A
+    // control left out can't be assigned to a screen: parseSlotConfig() refuses it, so no slot ever
+    // holds one. The #if blocks around its drawing and fetching further down only exist so that code
+    // isn't linked into the firmware.
+    bool controlBuilt(OrbItSource source) {
+        switch (source) {
+        case OrbItSource::TIME:
+            return ORBIT_CONTROL_TIME;
+        case OrbItSource::ANALOG_CLOCK:
+            return ORBIT_CONTROL_ANALOG_CLOCK;
+        case OrbItSource::GAUGE:
+            return ORBIT_CONTROL_GAUGE;
+        case OrbItSource::SYS_MONITOR:
+            return ORBIT_CONTROL_SYS_MONITOR;
+        case OrbItSource::SCREENSAVER:
+            return ORBIT_CONTROL_SCREENSAVER;
+        case OrbItSource::COUNTDOWN:
+            return ORBIT_CONTROL_COUNTDOWN;
+        case OrbItSource::WEATHER:
+            return ORBIT_CONTROL_WEATHER;
+        case OrbItSource::TICKER:
+            return ORBIT_CONTROL_TICKER;
+        case OrbItSource::CUSTOM:
+            return ORBIT_CONTROL_CUSTOM;
+        case OrbItSource::BLANK:
+        default:
+            return true;
         }
     }
-    return encoded;
-}
 
-String sourceToString(OrbItSource source) {
-    switch (source) {
-    case OrbItSource::TIME:
-        return "time";
-    case OrbItSource::ANALOG_CLOCK:
-        return "analogClock";
-    case OrbItSource::GAUGE:
-        return "gauge";
-    case OrbItSource::SYS_MONITOR:
-        return "sysMonitor";
-    case OrbItSource::SCREENSAVER:
-        return "screensaver";
-    case OrbItSource::COUNTDOWN:
-        return "countdown";
-    case OrbItSource::WEATHER:
-        return "weather";
-    case OrbItSource::TICKER:
-        return "ticker";
-    case OrbItSource::CUSTOM:
-        return "custom";
-    case OrbItSource::BLANK:
-    default:
-        return "blank";
+    String sourceToString(OrbItSource source) {
+        switch (source) {
+        case OrbItSource::TIME:
+            return "time";
+        case OrbItSource::ANALOG_CLOCK:
+            return "analogClock";
+        case OrbItSource::GAUGE:
+            return "gauge";
+        case OrbItSource::SYS_MONITOR:
+            return "sysMonitor";
+        case OrbItSource::SCREENSAVER:
+            return "screensaver";
+        case OrbItSource::COUNTDOWN:
+            return "countdown";
+        case OrbItSource::WEATHER:
+            return "weather";
+        case OrbItSource::TICKER:
+            return "ticker";
+        case OrbItSource::CUSTOM:
+            return "custom";
+        case OrbItSource::BLANK:
+        default:
+            return "blank";
+        }
     }
-}
 
-String weatherElementToString(WeatherElement element) {
-    switch (element) {
-    case WeatherElement::ICON:
-        return "icon";
-    case WeatherElement::TEMPERATURE:
-        return "temperature";
-    case WeatherElement::CONDITION:
-        return "condition";
+    // The control a name refers to, whether or not it's built. "asteroids" was a control of its own
+    // before it became one of the screensaver's effects.
+    bool sourceFromString(const String &name, OrbItSource &out) {
+        if (name == "asteroids") {
+            out = OrbItSource::SCREENSAVER;
+            return true;
+        }
+        for (OrbItSource source : ALL_SOURCES) {
+            if (sourceToString(source) == name) {
+                out = source;
+                return true;
+            }
+        }
+        return false;
     }
-    return "";
-}
 
-String gaugeStyleToString(GaugeStyle style) {
-    switch (style) {
-    case GaugeStyle::RING:
-        return "ring";
-    case GaugeStyle::SPEEDOMETER:
-        return "speedometer";
-    case GaugeStyle::INSTRUMENT:
-        return "instrument";
+    String weatherElementToString(WeatherElement element) {
+        switch (element) {
+        case WeatherElement::ICON:
+            return "icon";
+        case WeatherElement::TEMPERATURE:
+            return "temperature";
+        case WeatherElement::CONDITION:
+            return "condition";
+        }
+        return "";
     }
-    return "";
-}
 
-String countdownStateToString(CountdownRunState state) {
-    switch (state) {
-    case CountdownRunState::RUNNING:
-        return "running";
-    case CountdownRunState::PAUSED:
-        return "paused";
-    case CountdownRunState::COMPLETED:
-        return "completed";
-    case CountdownRunState::IDLE:
-    default:
-        return "idle";
+    String gaugeStyleToString(GaugeStyle style) {
+        switch (style) {
+        case GaugeStyle::RING:
+            return "ring";
+        case GaugeStyle::SPEEDOMETER:
+            return "speedometer";
+        case GaugeStyle::INSTRUMENT:
+            return "instrument";
+        }
+        return "";
     }
-}
+
+    String countdownStateToString(CountdownRunState state) {
+        switch (state) {
+        case CountdownRunState::RUNNING:
+            return "running";
+        case CountdownRunState::PAUSED:
+            return "paused";
+        case CountdownRunState::COMPLETED:
+            return "completed";
+        case CountdownRunState::IDLE:
+        default:
+            return "idle";
+        }
+    }
 } // namespace
 
 OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeControl(manager), m_analogClockControl(manager), m_gaugeControl(manager), m_sysMonitorControl(manager), m_screensaverControl(manager), m_countdownControl(manager), m_weatherControl(manager), m_tickerControl(manager), m_server(WebService::getInstance()->server()) {
@@ -192,6 +246,13 @@ OrbItWidget::OrbItWidget(ScreenManager &manager) : Widget(manager), m_timeContro
 
     m_slots[4].source = OrbItSource::TICKER;
     m_slots[4].tickerSymbol = "BTC/USD";
+
+    // A default this firmware was built without starts out blank instead.
+    for (int i = 0; i < NUM_SCREENS; i++) {
+        if (!controlBuilt(m_slots[i].source)) {
+            m_slots[i].source = OrbItSource::BLANK;
+        }
+    }
 
     // Overrides any of the above with whatever was last saved via orbit-api, if anything - NVS
     // access works fully offline, so this is safe to do here before WiFi is even up.
@@ -270,15 +331,21 @@ void OrbItWidget::update(bool force) {
         }
     }
 
+#if ORBIT_CONTROL_WEATHER
     if (anySlotUses(OrbItSource::WEATHER)) {
         updateWeather(force);
     }
+#endif
+#if ORBIT_CONTROL_TICKER
     if (anySlotUses(OrbItSource::TICKER)) {
         updateTicker(force);
     }
+#endif
+#if ORBIT_CONTROL_COUNTDOWN
     if (anySlotUses(OrbItSource::COUNTDOWN)) {
         updateCountdown(force);
     }
+#endif
 }
 
 // Every weather slot refreshes on the one shared timer, with one request per distinct location -
@@ -522,36 +589,57 @@ void OrbItWidget::draw(bool force) {
     }
 }
 
+// Each control's case is only compiled in if the control is built (see controlBuilt()), so a control
+// left out takes its drawing code with it.
 void OrbItWidget::drawSlot(int displayIndex, OrbItSlot &slot, bool force) {
     switch (slot.source) {
+#if ORBIT_CONTROL_TIME
     case OrbItSource::TIME:
         drawTimeSlot(displayIndex, slot, force);
         break;
+#endif
+#if ORBIT_CONTROL_ANALOG_CLOCK
     case OrbItSource::ANALOG_CLOCK:
         drawAnalogClockSlot(displayIndex, slot, force);
         break;
+#endif
+#if ORBIT_CONTROL_GAUGE
     case OrbItSource::GAUGE:
         drawGaugeSlot(displayIndex, slot, force);
         break;
+#endif
+#if ORBIT_CONTROL_SYS_MONITOR
     case OrbItSource::SYS_MONITOR:
         drawSysMonitorSlot(displayIndex, slot, force);
         break;
+#endif
+#if ORBIT_CONTROL_SCREENSAVER
     case OrbItSource::SCREENSAVER:
         drawScreensaverSlot(displayIndex, slot, force);
         break;
+#endif
+#if ORBIT_CONTROL_COUNTDOWN
     case OrbItSource::COUNTDOWN:
         drawCountdownSlot(displayIndex, slot, force);
         break;
+#endif
+#if ORBIT_CONTROL_WEATHER
     case OrbItSource::WEATHER:
         drawWeatherSlot(displayIndex, slot, force);
         break;
+#endif
+#if ORBIT_CONTROL_TICKER
     case OrbItSource::TICKER:
         drawTickerSlot(displayIndex, slot, force);
         break;
+#endif
+#if ORBIT_CONTROL_CUSTOM
     case OrbItSource::CUSTOM:
         drawCustomSlot(displayIndex, slot, force);
         break;
+#endif
     case OrbItSource::BLANK:
+    default:
         if (force || !slot.everDrawn) {
             m_manager.selectScreen(displayIndex);
             m_manager.fillScreen(TFT_BLACK);
@@ -693,10 +781,15 @@ void OrbItWidget::setupApiRoutes() {
         String uri = String(API_BASE) + "/" + String(i);
         m_server.on(uri, HTTP_GET, [this, i]() { handleGetScreen(i); });
         m_server.on(uri, HTTP_POST, [this, i]() { handlePostScreen(i); });
+#if ORBIT_CONTROL_TICKER
         m_server.on(uri + "/refresh", HTTP_POST, [this, i]() { handleRefreshScreen(i); });
+#endif
     }
 
+#if ORBIT_CONTROL_WEATHER
     m_server.on(WEATHER_PREVIEW_URI, HTTP_POST, [this]() { handleWeatherPreview(); });
+#endif
+    m_server.on(CAPABILITIES_URI, HTTP_GET, [this]() { handleGetCapabilities(); });
 
     // Only routes for screens 0..NUM_SCREENS-1 are registered above, so an out-of-range index (or
     // any other unmatched path) falls through to the core server's 404, which uses the same
@@ -711,11 +804,23 @@ void OrbItWidget::setupApiRoutes() {
         for (int i = 0; i < NUM_SCREENS; i++) {
             html += "<tr><th>" + String(i) + "</th><td><a href='" + String(API_BASE) + "/" + String(i) + "'>" + sourceToString(m_slots[i].source) + "</a></td></tr>";
         }
-        html += F("</table><h2>API</h2><p><a href='");
+        html += F("</table><h2>Built-in controls</h2><p>");
+        bool first = true;
+        for (OrbItSource source : ALL_SOURCES) {
+            if (controlBuilt(source)) {
+                html += (first ? "" : ", ") + sourceToString(source);
+                first = false;
+            }
+        }
+        html += F("</p><h2>API</h2><p><a href='");
         html += API_BASE;
         html += F("'><code>GET ");
         html += API_BASE;
-        html += F("</code></a> - all screen configs as JSON</p>");
+        html += F("</code></a> - all screen configs as JSON</p><p><a href='");
+        html += CAPABILITIES_URI;
+        html += F("'><code>GET ");
+        html += CAPABILITIES_URI;
+        html += F("</code></a> - what this firmware was built with</p>");
         return html;
     });
 }
@@ -833,13 +938,27 @@ void OrbItWidget::slotToJson(int index, const OrbItSlot &slot, JsonObject out) {
 // Parses {"control": "...", "params": {...}} into outSlot. Does not touch anything but outSlot -
 // callers decide when/whether it's safe to apply. Returns false + a human-readable errorMessage on
 // any validation failure (unknown control, missing/malformed params) - never partially applies.
-bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &errorMessage, int screenIndex) {
+bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &errorMessage, int screenIndex, int *errorStatus) {
+    if (errorStatus) {
+        *errorStatus = 400;
+    }
     if (!obj["control"].is<const char *>()) {
         errorMessage = "missing or invalid 'control'";
         return false;
     }
     String control = obj["control"].as<String>();
     JsonObject params = obj["params"].is<JsonObject>() ? obj["params"].as<JsonObject>() : JsonObject();
+
+    // Reported apart from an unknown control - 501 rather than 400 - so a client can tell "not in
+    // this build" from a typo.
+    OrbItSource requested;
+    if (sourceFromString(control, requested) && !controlBuilt(requested)) {
+        errorMessage = "control '" + control + "' isn't built into this firmware - see GET " + CAPABILITIES_URI;
+        if (errorStatus) {
+            *errorStatus = 501;
+        }
+        return false;
+    }
 
     if (control == "blank") {
         outSlot.source = OrbItSource::BLANK;
@@ -850,7 +969,9 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
     // accepted, both from older clients and from a layout saved by older firmware.
     if (control == "screensaver" || control == "asteroids") {
         ScreensaverConfig screensaver; // defaults
-        if (control == "screensaver" && !params["effect"].isNull()) {
+        if (control == "asteroids") {
+            screensaver.effect = ScreensaverEffect::ASTEROIDS;
+        } else if (!params["effect"].isNull()) {
             String effect = params["effect"].as<String>();
             if (params["effect"].is<const char *>() && effect == "cycle") {
                 screensaver.cycle = true;
@@ -858,6 +979,13 @@ bool OrbItWidget::parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &er
                 errorMessage = "unknown screensaver effect '" + effect + "'";
                 return false;
             }
+        }
+        if (!screensaver.cycle && !ScreensaverControl::effectBuilt(screensaver.effect)) {
+            errorMessage = String("screensaver effect '") + ScreensaverControl::effectName(screensaver.effect) + "' isn't built into this firmware - see GET " + CAPABILITIES_URI;
+            if (errorStatus) {
+                *errorStatus = 501;
+            }
+            return false;
         }
         // Optional, and only meaningful for "cycle" - defaults to ScreensaverConfig's own (5
         // minutes). Clamped rather than rejected, same reasoning as ticker's pollIntervalSeconds.
@@ -1154,6 +1282,9 @@ bool OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
     }
 
     slot.source = newConfig.source;
+    // Whatever this screen had saved that isn't built in has now been replaced. Restoring at boot
+    // (immediateFetch=false) never gets here for such a screen - see loadPersistedLayout().
+    m_unbuiltSaved[index] = "";
     slot.showDate = newConfig.showDate;
     slot.showDay = newConfig.showDay;
     slot.format24Hour = newConfig.format24Hour;
@@ -1208,6 +1339,7 @@ bool OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
         slot.weatherFetchPending = !shared;
     }
 
+#if ORBIT_CONTROL_TICKER
     if (slot.source == OrbItSource::TICKER) {
         m_tickerModels[index] = StockDataModel();
         m_tickerModels[index].setSymbol(slot.tickerSymbol);
@@ -1220,6 +1352,7 @@ bool OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
             slot.tickerDelayPrev = 0;
         }
     }
+#endif
 
     if (slot.source == OrbItSource::COUNTDOWN) {
         // Like CUSTOM above, this needs the raw params object directly (params.action isn't a typed
@@ -1249,9 +1382,11 @@ bool OrbItWidget::applySlotConfig(int index, const OrbItSlot &newConfig, JsonObj
             }
             slot.customParams = stored;
         }
+#if ORBIT_CONTROL_CUSTOM
         // A write replaces the whole config, but parseData() only touches the label if one is given.
         m_customModels[index].setLabel("");
         m_customModels[index].parseData(params, TFT_WHITE, TFT_BLACK);
+#endif
     } else if (wasCustom) {
         slot.customParams = "";
         slot.customUnsaved = true; // so persistLayout() drops the drawing this screen no longer shows
@@ -1297,9 +1432,14 @@ void OrbItWidget::loadPersistedLayout() {
             continue;
         }
 
+        // Exactly as saved, before a custom drawing is added to it below.
+        String savedEntry;
+        serializeJson(entry, savedEntry);
+
         // A custom slot's params aren't in the layout - see drawingPath(). No saved drawing (it was
         // empty, couldn't be saved, or the layout predates drawings being saved) restores as a
         // blank screen.
+#if ORBIT_CONTROL_CUSTOM
         if (entry["control"].is<const char *>() && String(entry["control"].as<const char *>()) == "custom") {
             JsonDocument drawing;
             if (mountDrawingStore()) {
@@ -1311,11 +1451,21 @@ void OrbItWidget::loadPersistedLayout() {
             }
             entry["params"].set(drawing.as<JsonObject>());
         }
+#endif
 
         String errorMessage;
         OrbItSlot parsed;
-        if (!parseSlotConfig(entry, parsed, errorMessage)) {
-            Serial.println("OrbIt: skipping invalid persisted slot " + String(index) + ": " + errorMessage);
+        int errorStatus;
+        if (!parseSlotConfig(entry, parsed, errorMessage, -1, &errorStatus)) {
+            if (errorStatus == 501) {
+                // Saved by firmware built with more controls than this one. The screen shows blank,
+                // but the entry is kept, so flashing a build with the control again brings it back.
+                m_slots[index].source = OrbItSource::BLANK;
+                m_unbuiltSaved[index] = savedEntry;
+                Serial.println("OrbIt: screen " + String(index) + " shows blank - " + errorMessage);
+            } else {
+                Serial.println("OrbIt: skipping invalid persisted slot " + String(index) + ": " + errorMessage);
+            }
             continue;
         }
         applySlotConfig(index, parsed, entry, /* immediateFetch */ false);
@@ -1341,6 +1491,7 @@ bool OrbItWidget::persistLayout() {
     JsonArray screens = doc["screens"].to<JsonArray>();
     for (int i = 0; i < NUM_SCREENS; i++) {
         OrbItSlot &slot = m_slots[i];
+#if ORBIT_CONTROL_CUSTOM
         if (slot.customUnsaved) {
             slot.customUnsaved = false;
             String path = drawingPath(i);
@@ -1361,9 +1512,17 @@ bool OrbItWidget::persistLayout() {
                 LittleFS.remove(path);
             }
         }
+#endif
 
         if (slot.source == OrbItSource::COUNTDOWN) {
             continue;
+        }
+        if (m_unbuiltSaved[i].length() > 0) {
+            JsonDocument kept;
+            if (!deserializeJson(kept, m_unbuiltSaved[i])) {
+                screens.add(kept.as<JsonObject>());
+                continue;
+            }
         }
         JsonObject entry = screens.add<JsonObject>();
         slotToJson(i, slot, entry);
@@ -1432,8 +1591,9 @@ void OrbItWidget::handlePostScreen(int index) {
 
     OrbItSlot parsed;
     String errorMessage;
-    if (!parseSlotConfig(doc.as<JsonObject>(), parsed, errorMessage, index)) {
-        sendError(400, errorMessage);
+    int errorStatus;
+    if (!parseSlotConfig(doc.as<JsonObject>(), parsed, errorMessage, index, &errorStatus)) {
+        sendError(errorStatus, errorMessage);
         return;
     }
 
@@ -1512,6 +1672,27 @@ void OrbItWidget::handleWeatherPreview() {
     sendJson(200, response);
 }
 
+// What this firmware was built with, so a client can offer only what will work - see the
+// ORBIT_CONTROL_* and ORBIT_EFFECT_* switches in config.h.
+void OrbItWidget::handleGetCapabilities() {
+    JsonDocument doc;
+    JsonArray controls = doc["controls"].to<JsonArray>();
+    for (OrbItSource source : ALL_SOURCES) {
+        if (controlBuilt(source)) {
+            controls.add(sourceToString(source));
+        }
+    }
+    if (controlBuilt(OrbItSource::SCREENSAVER)) {
+        JsonArray effects = doc["screensaverEffects"].to<JsonArray>();
+        for (ScreensaverEffect effect : ScreensaverControl::ALL_EFFECTS) {
+            if (ScreensaverControl::effectBuilt(effect)) {
+                effects.add(ScreensaverControl::effectName(effect));
+            }
+        }
+    }
+    sendJson(200, doc);
+}
+
 void OrbItWidget::handlePostScreens() {
     if (!m_server.hasArg("plain")) {
         sendError(400, "missing JSON body");
@@ -1555,8 +1736,9 @@ void OrbItWidget::handlePostScreens() {
 
         String errorMessage;
         OrbItSlot parsed;
-        if (!parseSlotConfig(entry, parsed, errorMessage, screenIndex)) {
-            sendError(400, "screen " + String(screenIndex) + ": " + errorMessage);
+        int errorStatus;
+        if (!parseSlotConfig(entry, parsed, errorMessage, screenIndex, &errorStatus)) {
+            sendError(errorStatus, "screen " + String(screenIndex) + ": " + errorMessage);
             return;
         }
 

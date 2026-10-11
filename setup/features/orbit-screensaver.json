@@ -1,0 +1,14 @@
+{
+  "id": "orbit-screensaver",
+  "kind": "control",
+  "parent": "orbit",
+  "order": 790,
+  "name": "Screensaver",
+  "description": "Decorative animations.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_CONTROL_SCREENSAVER",
+    "style": "bool"
+  },
+  "flashKb": 1
+}

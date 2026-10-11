@@ -1,0 +1,24 @@
+{
+  "id": "webdata-stocks",
+  "kind": "widget",
+  "order": 510,
+  "name": "Web data stocks",
+  "description": "A second web data widget, meant as an alternative stock widget.",
+  "default": false,
+  "switch": {
+    "macro": "WEB_DATA_STOCK_WIDGET_URL",
+    "style": "value"
+  },
+  "flashKb": 2,
+  "settings": [
+    {
+      "macro": "WEB_DATA_STOCK_WIDGET_URL",
+      "type": "string",
+      "prompt": "URL of the JSON",
+      "default": "http://<insert host here>/stocks.php?stocks=SPY,VT,GOOG,TSLA,GME"
+    }
+  ],
+  "sharedKb": {
+    "web data drawing": 14
+  }
+}

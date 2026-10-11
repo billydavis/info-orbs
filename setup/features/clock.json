@@ -1,0 +1,120 @@
+{
+  "id": "clock",
+  "kind": "widget",
+  "order": 100,
+  "name": "Clock",
+  "description": "The original clock: one big digit on each screen.",
+  "default": true,
+  "switch": {
+    "macro": "USE_CLOCK_WIDGET",
+    "style": "bool"
+  },
+  "flashKb": 3,
+  "settings": [
+    {
+      "macro": "DEFAULT_CLOCK",
+      "type": "choice",
+      "prompt": "Clock face to start on",
+      "default": "ClockType::NORMAL",
+      "choices": [
+        {
+          "value": "ClockType::NORMAL",
+          "label": "Normal"
+        },
+        {
+          "value": "ClockType::NIXIE",
+          "label": "Nixie",
+          "feature": "clock-nixie"
+        },
+        {
+          "value": "ClockType::CUSTOM",
+          "label": "Custom",
+          "feature": "clock-custom"
+        }
+      ]
+    },
+    {
+      "macro": "CLOCK_FONT",
+      "type": "choice",
+      "prompt": "Font for the normal face",
+      "default": "DSEG7",
+      "advanced": true,
+      "choices": [
+        {
+          "value": "DSEG7",
+          "label": "DSEG7 (seven-segment)"
+        },
+        {
+          "value": "DSEG14",
+          "label": "DSEG14 (fourteen-segment, +70KB)"
+        },
+        {
+          "value": "FINAL_FRONTIER",
+          "label": "Final Frontier"
+        }
+      ]
+    },
+    {
+      "macro": "CLOCK_INCLUDE_DSEG14",
+      "type": "bool",
+      "prompt": "Include the DSEG14 font",
+      "derived": {
+        "anyOf": [
+          [
+            {
+              "from": "CLOCK_FONT",
+              "equals": "DSEG14"
+            }
+          ],
+          [
+            {
+              "from": "CLOCK_FONT",
+              "equals": "DSEG7"
+            },
+            {
+              "from": "SHOW_AM_PM_INDICATOR",
+              "equals": true
+            }
+          ]
+        ]
+      },
+      "flashKb": 70
+    },
+    {
+      "macro": "SHOW_AM_PM_INDICATOR",
+      "type": "bool",
+      "prompt": "Show AM/PM (12-hour time only)",
+      "default": false,
+      "advanced": true
+    },
+    {
+      "macro": "SHOW_SECOND_TICKS",
+      "type": "bool",
+      "prompt": "Show ticking seconds on the middle screen",
+      "default": true,
+      "advanced": true
+    },
+    {
+      "macro": "CLOCK_COLOR",
+      "type": "color",
+      "prompt": "Digit colour",
+      "default": "0xfc80",
+      "advanced": true
+    },
+    {
+      "macro": "CLOCK_SHADOW_COLOR",
+      "type": "color",
+      "prompt": "Digit shadow colour",
+      "default": "0x20a1",
+      "advanced": true
+    },
+    {
+      "macro": "CLOCK_SHADOWING",
+      "type": "bool",
+      "prompt": "Draw digit shadows",
+      "default": true,
+      "advanced": true
+    }
+  ],
+  "advancedLabel": "font, colours, shadows, AM/PM, ticking seconds"
+}

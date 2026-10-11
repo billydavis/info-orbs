@@ -1,0 +1,14 @@
+{
+  "id": "orbit-effect-radar",
+  "kind": "effect",
+  "parent": "orbit-screensaver",
+  "order": 795,
+  "name": "Radar",
+  "description": "A sweeping radar scope with contacts.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_EFFECT_RADAR",
+    "style": "bool"
+  },
+  "flashKb": 2
+}

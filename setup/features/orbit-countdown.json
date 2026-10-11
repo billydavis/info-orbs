@@ -1,0 +1,14 @@
+{
+  "id": "orbit-countdown",
+  "kind": "control",
+  "parent": "orbit",
+  "order": 750,
+  "name": "Countdown",
+  "description": "A timer that flashes when it reaches zero.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_CONTROL_COUNTDOWN",
+    "style": "bool"
+  },
+  "flashKb": 2
+}

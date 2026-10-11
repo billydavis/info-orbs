@@ -1,0 +1,14 @@
+{
+  "id": "orbit-ticker",
+  "kind": "control",
+  "parent": "orbit",
+  "order": 770,
+  "name": "Ticker",
+  "description": "One stock, crypto or currency price.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_CONTROL_TICKER",
+    "style": "bool"
+  },
+  "flashKb": 4
+}

@@ -1,0 +1,14 @@
+{
+  "id": "clock-nixie",
+  "kind": "option",
+  "parent": "clock",
+  "order": 110,
+  "name": "Nixie face",
+  "description": "Nixie tube digits. The middle button switches faces.",
+  "default": false,
+  "switch": {
+    "macro": "USE_CLOCK_NIXIE",
+    "style": "bool"
+  },
+  "flashKb": 153
+}

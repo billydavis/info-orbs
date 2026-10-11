@@ -33,3 +33,34 @@ jobs:
 
       - name: Build PlatformIO Project
         run: pio run
+
+  # Builds the setup presets, from the smallest build to everything, to catch combinations of
+  # feature switches that no longer compile.
+  presets:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        preset: [clock-only, orbit-desk, everything]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Check setup/features matches the firmware
+        run: python setup/check_features.py
+
+      - name: Create config.h from the preset
+        run: python setup/setup.py --preset ${{ matrix.preset }} --yes --output firmware/config/config.h
+
+      - name: Build PlatformIO Project
+        run: pio run

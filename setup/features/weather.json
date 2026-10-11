@@ -1,0 +1,16 @@
+{
+  "id": "weather",
+  "kind": "widget",
+  "order": 200,
+  "name": "Weather",
+  "description": "The original weather widget: clock, conditions, temperature and a forecast.",
+  "default": true,
+  "switch": {
+    "macro": "USE_WEATHER_WIDGET",
+    "style": "bool"
+  },
+  "flashKb": 7,
+  "sharedKb": {
+    "weather icons": 33
+  }
+}

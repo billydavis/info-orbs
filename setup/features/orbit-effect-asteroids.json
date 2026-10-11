@@ -1,0 +1,14 @@
+{
+  "id": "orbit-effect-asteroids",
+  "kind": "effect",
+  "parent": "orbit-screensaver",
+  "order": 791,
+  "name": "Asteroids",
+  "description": "A starfield with a ringed planet and drifting rocks.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_EFFECT_ASTEROIDS",
+    "style": "bool"
+  },
+  "flashKb": 3
+}

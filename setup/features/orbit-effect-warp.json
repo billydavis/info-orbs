@@ -1,0 +1,14 @@
+{
+  "id": "orbit-effect-warp",
+  "kind": "effect",
+  "parent": "orbit-screensaver",
+  "order": 793,
+  "name": "Warp",
+  "description": "A flight down a twisting wormhole.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_EFFECT_WARP",
+    "style": "bool"
+  },
+  "flashKb": 2
+}

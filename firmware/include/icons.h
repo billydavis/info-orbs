@@ -6,8 +6,7 @@
 // These symbols are generated from the files specified in platformio.ini under 'board_build.embed_files'
 // See https://docs.platformio.org/en/latest/platforms/espressif32.html#embedding-binary-data for more info
 
-// If you only ever use WEATHER_SCREEN_MODE Dark, set this to false (and comment out the 7 light-mode
-// icon lines in platformio.ini) to save ~31KB of flash.
+// If you only ever use WEATHER_SCREEN_MODE Dark, set this to false to save ~31KB of flash.
 #ifndef WEATHER_INCLUDE_LIGHT_ICONS
     #define WEATHER_INCLUDE_LIGHT_ICONS true
 #endif

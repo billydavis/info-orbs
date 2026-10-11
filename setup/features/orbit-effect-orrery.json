@@ -1,0 +1,14 @@
+{
+  "id": "orbit-effect-orrery",
+  "kind": "effect",
+  "parent": "orbit-screensaver",
+  "order": 794,
+  "name": "Orrery",
+  "description": "Planets circling a sun.",
+  "default": true,
+  "switch": {
+    "macro": "ORBIT_EFFECT_ORRERY",
+    "style": "bool"
+  },
+  "flashKb": 2
+}

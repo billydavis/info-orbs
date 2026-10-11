@@ -1,0 +1,28 @@
+{
+  "id": "everything",
+  "order": 3,
+  "name": "Everything",
+  "description": "Every widget that needs no account or server of your own, with every clock face and every OrbIt control and effect.",
+  "features": [
+    "clock",
+    "clock-nixie",
+    "clock-custom",
+    "weather",
+    "stocks",
+    "orbit",
+    "orbit-time",
+    "orbit-analog-clock",
+    "orbit-gauge",
+    "orbit-sys-monitor",
+    "orbit-countdown",
+    "orbit-weather",
+    "orbit-ticker",
+    "orbit-custom",
+    "orbit-screensaver",
+    "orbit-effect-asteroids",
+    "orbit-effect-matrix",
+    "orbit-effect-warp",
+    "orbit-effect-orrery",
+    "orbit-effect-radar"
+  ]
+}
