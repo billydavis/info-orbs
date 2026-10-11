@@ -32,6 +32,7 @@ void WebService::begin() {
 #ifndef DISABLE_WEB_SERVER
     m_server.on("/", HTTP_GET, [this]() { handleRoot(); });
     m_server.on("/api/v1/system", HTTP_GET, [this]() { handleSystem(); });
+    m_server.on("/api/v1/capabilities", HTTP_GET, [this]() { handleCapabilities(); });
 
     // POST /api/v1/buttons/{left|ok|right}?press={short|medium|long} - acts like a physical button press.
     // With ?redirect=1 the response is a redirect back to "/" (used by the home page's buttons).
@@ -176,11 +177,45 @@ void WebService::fillSystemInfo(JsonDocument &doc) {
     doc["freeHeap"] = ESP.getFreeHeap();
     doc["minFreeHeap"] = ESP.getMinFreeHeap();
     doc["firmwareBuilt"] = String(__DATE__) + " " + __TIME__;
+    // The widget on screen now - it changes with the orbs' own buttons and the cycle timer, so
+    // clients that need it current poll this rather than the capabilities
+    if (m_widgetSet != nullptr && m_widgetSet->getCount() > 0) {
+        doc["widget"] = m_widgetSet->getCurrent()->getName();
+    }
 }
 
 void WebService::handleSystem() {
     JsonDocument doc;
     fillSystemInfo(doc);
+    String body;
+    serializeJson(doc, body);
+    m_server.send(200, "application/json", body);
+}
+
+// What this firmware was built with: the widgets, in cycling order, each with whatever optional
+// parts it reports through Widget::describeCapabilities().
+void WebService::handleCapabilities() {
+    JsonDocument doc;
+    doc["firmwareBuilt"] = __DATE__ " " __TIME__;
+    doc["screens"] = NUM_SCREENS;
+    JsonArray widgets = doc["widgets"].to<JsonArray>();
+    if (m_widgetSet != nullptr) {
+        Widget *current = m_widgetSet->getCurrent();
+        for (int8_t i = 0; i < m_widgetSet->getCount(); i++) {
+            Widget *widget = m_widgetSet->get(i);
+            if (widget == nullptr) {
+                continue;
+            }
+            JsonObject info = widgets.add<JsonObject>();
+            info["name"] = widget->getName();
+            info["showing"] = widget == current;
+            const WidgetPage *page = findPage(widget);
+            if (page != nullptr) {
+                info["page"] = page->path;
+            }
+            widget->describeCapabilities(info);
+        }
+    }
     String body;
     serializeJson(doc, body);
     m_server.send(200, "application/json", body);
@@ -263,7 +298,7 @@ void WebService::handleRoot() {
             }
             row(name, widget == current ? "showing" : "");
         }
-        html += F("</table>");
+        html += F("</table><p><a href='/api/v1/capabilities'><code>GET /api/v1/capabilities</code></a> - what this firmware was built with</p>");
     }
 
     if (m_buttonHandler) {

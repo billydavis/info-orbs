@@ -270,7 +270,9 @@ What this firmware was built with. Controls and screensaver effects are build-ti
 }
 ```
 
-`blank` is always built. `screensaverEffects` is only present when `screensaver` is in `controls`. Firmware from before this endpoint answers `404`; assume everything in the control table above is built.
+The response also has `"api": "/orbit/api/v1/screens"`. The same object, plus `name`, `showing` and `page`, is OrbIt's entry in the device-wide `GET /api/v1/capabilities`, which lists every widget built into the firmware (see the README).
+
+`blank` is always built. `screensaverEffects` is only present when `screensaver` is in `controls`. It lists the built animations only: `"effect": "cycle"` is not in it, but is accepted whenever `screensaver` is built, and rotates through the listed ones. Firmware from before this endpoint answers `404`; assume everything in the control table above is built.
 
 What leaving something out changes:
 
@@ -278,7 +280,7 @@ What leaving something out changes:
 - `cycle` only rotates through the effects that are built.
 - A compile-time default screen whose control isn't built starts out `blank`.
 - `POST /screens/{n}/refresh` only exists with `ticker` built, and `POST /weather/preview` only with `weather` built.
-- A screen whose saved layout names a control this build doesn't have shows `blank`, and `GET` reports it as `blank`, but its saved entry is kept: other writes don't lose it, and flashing a build with that control again brings the screen back as it was. Writing anything to that screen replaces it.
+- A screen whose saved layout names a control this build doesn't have shows `blank`, and `GET` reports it as `blank`, but its saved entry is kept: other writes don't lose it, and flashing a build with that control again brings the screen back as it was. Writing anything to that screen replaces it. Such a screen carries `"savedControl": "<control name>"` in `GET /screens`, `GET /screens/{n}` and the bulk `POST /screens` response, so a client can tell it from a real `blank` (which has no `savedControl`) and warn before overwriting it.
 
 ### `POST /orbit/api/v1/weather/preview`
 

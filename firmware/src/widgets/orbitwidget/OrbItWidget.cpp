@@ -1561,18 +1561,30 @@ bool OrbItWidget::persistLayout() {
     return saved;
 }
 
+// A screen as GET reports it. A screen that is only blank because its saved control isn't in this
+// build says which control that is, so a client can tell it from a real blank before overwriting it.
+void OrbItWidget::reportSlot(int index, JsonObject out) {
+    slotToJson(index, m_slots[index], out);
+    if (m_unbuiltSaved[index].length() > 0) {
+        JsonDocument kept;
+        if (!deserializeJson(kept, m_unbuiltSaved[index]) && kept["control"].is<const char *>()) {
+            out["savedControl"] = kept["control"].as<const char *>();
+        }
+    }
+}
+
 void OrbItWidget::handleGetScreens() {
     JsonDocument doc;
     JsonArray screens = doc["screens"].to<JsonArray>();
     for (int i = 0; i < NUM_SCREENS; i++) {
-        slotToJson(i, m_slots[i], screens.add<JsonObject>());
+        reportSlot(i, screens.add<JsonObject>());
     }
     sendJson(200, doc);
 }
 
 void OrbItWidget::handleGetScreen(int index) {
     JsonDocument doc;
-    slotToJson(index, m_slots[index], doc.to<JsonObject>());
+    reportSlot(index, doc.to<JsonObject>());
     sendJson(200, doc);
 }
 
@@ -1676,21 +1688,27 @@ void OrbItWidget::handleWeatherPreview() {
 // ORBIT_CONTROL_* and ORBIT_EFFECT_* switches in config.h.
 void OrbItWidget::handleGetCapabilities() {
     JsonDocument doc;
-    JsonArray controls = doc["controls"].to<JsonArray>();
+    describeCapabilities(doc.to<JsonObject>());
+    sendJson(200, doc);
+}
+
+// Also OrbIt's entry in the device-wide GET /api/v1/capabilities
+void OrbItWidget::describeCapabilities(JsonObject info) {
+    info["api"] = API_BASE;
+    JsonArray controls = info["controls"].to<JsonArray>();
     for (OrbItSource source : ALL_SOURCES) {
         if (controlBuilt(source)) {
             controls.add(sourceToString(source));
         }
     }
     if (controlBuilt(OrbItSource::SCREENSAVER)) {
-        JsonArray effects = doc["screensaverEffects"].to<JsonArray>();
+        JsonArray effects = info["screensaverEffects"].to<JsonArray>();
         for (ScreensaverEffect effect : ScreensaverControl::ALL_EFFECTS) {
             if (ScreensaverControl::effectBuilt(effect)) {
                 effects.add(ScreensaverControl::effectName(effect));
             }
         }
     }
-    sendJson(200, doc);
 }
 
 void OrbItWidget::handlePostScreens() {
@@ -1761,7 +1779,7 @@ void OrbItWidget::handlePostScreens() {
     }
     JsonArray screens = response["screens"].to<JsonArray>();
     for (int i = 0; i < NUM_SCREENS; i++) {
-        slotToJson(i, m_slots[i], screens.add<JsonObject>());
+        reportSlot(i, screens.add<JsonObject>());
     }
     sendJson(200, response);
 }

@@ -114,6 +114,7 @@ public:
     void draw(bool force = false) override;
     void buttonPressed(uint8_t buttonId, ButtonState state) override;
     String getName() override;
+    void describeCapabilities(JsonObject info) override;
 
 private:
     bool anySlotUses(OrbItSource source);
@@ -160,6 +161,7 @@ private:
     // control (or screensaver effect) this firmware was built without, 400 for anything else.
     bool parseSlotConfig(JsonObject obj, OrbItSlot &outSlot, String &errorMessage, int screenIndex = -1, int *errorStatus = nullptr);
     void slotToJson(int index, const OrbItSlot &slot, JsonObject out);
+    void reportSlot(int index, JsonObject out);
     void sendJson(int code, const JsonDocument &doc);
     void sendError(int code, const String &message);
     // immediateFetch=false is used only when restoring from NVS at construction time, before WiFi

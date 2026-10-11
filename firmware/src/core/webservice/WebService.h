@@ -89,6 +89,7 @@ private:
     void fillSystemInfo(JsonDocument &doc);
     void handleRoot();
     void handleSystem();
+    void handleCapabilities();
     void handleButton(const String &name, uint8_t buttonId);
     const WidgetPage *findPage(Widget *widget);
 

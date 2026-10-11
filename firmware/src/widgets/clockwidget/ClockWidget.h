@@ -83,6 +83,7 @@ public:
     void draw(bool force = false) override;
     void buttonPressed(uint8_t buttonId, ButtonState state) override;
     String getName() override;
+    void describeCapabilities(JsonObject info) override;
 
 private:
     void change24hMode();

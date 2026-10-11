@@ -158,7 +158,8 @@ The page shows device info (IP, WiFi signal, uptime, memory), the active widgets
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/system` | Device info as JSON (hostname, IP, MAC, SSID, RSSI, uptime, heap, build) |
+| `GET` | `/api/v1/system` | Device info as JSON (hostname, IP, MAC, SSID, RSSI, uptime, heap, build, and `widget`: the one on screen now) |
+| `GET` | `/api/v1/capabilities` | What this firmware was built with: the widgets, in order, and each one's optional parts (clock faces, OrbIt controls and screensaver effects). `showing` is true for the widget on screen when asked; to follow it as it changes, poll `widget` in `/api/v1/system` |
 | `POST` | `/api/v1/buttons/{left\|ok\|right}` | Simulates a button press. Optional `?press=short\|medium\|long` (default `short`) |
 
 ```bash

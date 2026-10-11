@@ -125,6 +125,17 @@ void ClockWidget::change24hMode() {
     draw(true);
 }
 
+void ClockWidget::describeCapabilities(JsonObject info) {
+    JsonArray faces = info["faces"].to<JsonArray>();
+    faces.add("normal");
+    if (USE_CLOCK_NIXIE) {
+        faces.add("nixie");
+    }
+    if (USE_CLOCK_CUSTOM) {
+        faces.add("custom");
+    }
+}
+
 void ClockWidget::changeClockType() {
     switch (m_type) {
     case ClockType::NORMAL:
