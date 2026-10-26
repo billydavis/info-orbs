@@ -354,6 +354,15 @@ void OrbItWidget::updateWeather(bool force) {
     // Between refreshes, only a slot that was just given a location nobody had readings for (see
     // applySlotConfig()) gets fetched.
     bool refreshDue = force || m_weatherDelayPrev == 0 || (millis() - m_weatherDelayPrev) >= m_weatherDelay;
+    // Locations actually fetched (or being fetched) this pass - NOT every WEATHER slot at a given
+    // location, since an earlier slot showing it may itself have been skipped (not due, not
+    // pending) below. Checking m_slots[j] directly for that case used to wrongly treat the location
+    // as already handled, leaving every slot sharing it stuck on stale/blank readings until the next
+    // full refresh - e.g. two weather screens introduced together by a profile switch, where the
+    // lower-indexed one hadn't fetched yet but a higher-indexed, not-yet-due sibling made it look
+    // like it had.
+    String fetchedLocations[NUM_SCREENS];
+    int fetchedCount = 0;
     for (int i = 0; i < NUM_SCREENS; i++) {
         if (m_slots[i].source != OrbItSource::WEATHER || !(refreshDue || m_slots[i].weatherFetchPending)) {
             continue;
@@ -363,11 +372,12 @@ void OrbItWidget::updateWeather(bool force) {
         m_slots[i].weatherFetchPending = false;
         String location = weatherLocationOf(m_slots[i]);
         bool alreadyFetched = false;
-        for (int j = 0; j < i && !alreadyFetched; j++) {
-            alreadyFetched = m_slots[j].source == OrbItSource::WEATHER && weatherLocationOf(m_slots[j]) == location;
+        for (int j = 0; j < fetchedCount && !alreadyFetched; j++) {
+            alreadyFetched = fetchedLocations[j] == location;
         }
         if (!alreadyFetched) {
             fetchWeatherData(location);
+            fetchedLocations[fetchedCount++] = location;
         }
     }
     if (refreshDue) {
